@@ -104,3 +104,48 @@ Current project flows are documented under `docs/flows`:
 
 - `web/src/contracts.ts`, `web/src/constants.ts`, and `web/src/types.ts` are now mock examples to guide the real implementation.
 - Infra Docker definitions are reduced to web-only templates for this project reset.
+
+## Git Workflow for Developers
+
+Follow this workflow for every task:
+
+1. Start from updated `main` locally and create your feature branch:
+
+```bash
+git checkout main
+git pull origin main
+git checkout -b feature/<your-feature-name>
+```
+
+2. Make changes on your local feature branch, commit, and push to your remote feature branch:
+
+```bash
+git add .
+git commit -m "your message"
+git push -u origin feature/<your-feature-name>
+```
+
+3. Open a Pull Request from your remote feature branch to remote `main`:
+
+- Source: `feature/<your-feature-name>`
+- Target: `main`
+
+4. Keep your local branches synced after other PRs are merged:
+
+```bash
+# Update local main from remote main
+git checkout main
+git pull origin main
+
+# Bring latest main into your feature branch
+git checkout feature/<your-feature-name>
+git merge main
+```
+
+5. If merge/update creates new changes, push again to your own remote feature branch:
+
+```bash
+git push origin feature/<your-feature-name>
+```
+
+Repeat this sync cycle so each developer continuously pulls latest `main` changes, merges into their local feature branch, and pushes updates to their own remote feature branch.
