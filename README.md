@@ -33,6 +33,16 @@ Core goals:
 - Kubernetes (Minikube or Docker Desktop Kubernetes)
 - Node.js 20+ (for web app)
 
+## Local Environment Setup
+
+Follow these steps in order:
+
+```bash
+brew install minikube
+kubectl config use-context docker-desktop
+curl -fsSL https://raw.githubusercontent.com/tilt-dev/tilt/master/scripts/install.sh | bash
+```
+
 ## Run Locally
 
 Start local development:
@@ -94,4 +104,3 @@ Current project flows are documented under `docs/flows`:
 
 - `web/src/contracts.ts`, `web/src/constants.ts`, and `web/src/types.ts` are now mock examples to guide the real implementation.
 - Infra Docker definitions are reduced to web-only templates for this project reset.
-# SmartFind
