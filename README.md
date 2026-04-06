@@ -57,6 +57,34 @@ Check resources:
 kubectl get pods
 ```
 
+## Makefile Commands
+
+The `Makefile` includes migration helpers that read `DATABASE_URL` from [infra/development/k8s/secrets.yaml](infra/development/k8s/secrets.yaml).
+
+Install the migration CLI if it is not already available:
+
+```bash
+brew install golang-migrate
+```
+
+Create a new sequential migration:
+
+```bash
+make migrate-create name=add_users_table
+```
+
+Run all pending migrations:
+
+```bash
+make migrate-up
+```
+
+Roll back the most recent migration:
+
+```bash
+make migrate-down
+```
+
 ## Web App (Blank Starter)
 
 The frontend is intentionally reset to a blank page for the new project phase.
