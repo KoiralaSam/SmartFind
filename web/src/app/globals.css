@@ -69,4 +69,20 @@ body {
   body {
     @apply bg-background text-foreground;
   }
+  button,
+  [role="button"] {
+    @apply cursor-pointer;
+  }
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    @apply cursor-not-allowed;
+  }
+  input[type="submit"]:not(:disabled),
+  input[type="button"]:not(:disabled),
+  input[type="reset"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+  input:disabled {
+    @apply cursor-not-allowed;
+  }
 }
