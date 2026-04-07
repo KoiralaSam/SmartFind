@@ -62,6 +62,26 @@ build/
 
 # Secrets
 secrets.yaml
+infra/development/k8s/chat-agent-secrets.yaml
 
 #python
 .venv/
+__pycache__/
+*.pyc
+# Environment variables
+.env
+
+# Mac
+.DS_Store
+
+# Node (you have React)
+node_modules/
+dist/
+build/
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
