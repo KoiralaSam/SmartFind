@@ -2,13 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Bot, LogOut, Send, Sparkles, UserRound } from "lucide-react";
 
-function buildMockReply(userText) {
-  const trimmed = userText.trim();
-  if (!trimmed) {
-    return "Send a message to get started — I’ll respond here once AI is connected.";
-  }
-  return `Thanks for your message. Full AI integration is coming soon.\n\nYou wrote: “${trimmed.slice(0, 200)}${trimmed.length > 200 ? "…" : ""}”\n\nFor lost items or routes, you’ll be able to get real answers here shortly.`;
-}
+const CHAT_BASE_URL = "/api";
 
 export default function PassengerChatPage() {
   const [messages, setMessages] = useState(() => [
@@ -16,7 +10,7 @@ export default function PassengerChatPage() {
       id: "welcome",
       role: "assistant",
       content:
-        "Hi — I’m your SmartFind transit assistant (preview). Ask about lost items, routes, or anything else. Real AI replies will be wired up later.",
+        "Hello! I'm so sorry to hear you've lost something — I know how stressful that can be. I'm here to help you file a lost item report. Could you start by telling me what item you lost?",
     },
   ]);
   const [draft, setDraft] = useState("");
@@ -40,30 +34,48 @@ export default function PassengerChatPage() {
     setDraft("");
     setSending(true);
 
-    setTimeout(() => {
-      setMessages((m) => [
-        ...m,
-        {
-          id: `a-${Date.now()}`,
-          role: "assistant",
-          content: buildMockReply(text),
-        },
-      ]);
-      setSending(false);
-    }, 450);
+    (async () => {
+      try {
+        const conversationMessages = messages
+          .filter((msg) => msg.id !== "welcome")
+          .map((msg) => ({ role: msg.role, content: msg.content }))
+          .concat([{ role: "user", content: text }]);
+
+        const response = await fetch(`${CHAT_BASE_URL}/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: conversationMessages }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`API error: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        setMessages((m) => [
+          ...m,
+          { id: `a-${Date.now()}`, role: "assistant", content: data.reply },
+        ]);
+      } catch (error) {
+        console.error("Chat error:", error);
+        setMessages((m) => [
+          ...m,
+          {
+            id: `a-${Date.now()}`,
+            role: "assistant",
+            content: `Something went wrong: ${error.message}`,
+          },
+        ]);
+      } finally {
+        setSending(false);
+      }
+    })();
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-gradient-to-b from-muted/40 via-background to-background">
-      <header className="sticky top-0 z-10 border-b border-border/80 bg-background/90 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-4xl items-center gap-3 px-3 sm:px-4">
-          <Link
-            to="/"
-            className="inline-flex shrink-0 items-center gap-2 rounded-lg px-2 py-1.5 text-sm font-medium text-muted-foreground transition hover:bg-muted hover:text-foreground"
-          >
-            <LogOut className="h-4 w-4" aria-hidden />
-            End session
-          </Link>
+    <div className="flex h-screen flex-col overflow-hidden bg-gradient-to-b from-muted/40 via-background to-background">
+      <header className="shrink-0 border-b border-border/80 bg-background/90 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-3 sm:px-4">
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-sm">
               <Sparkles className="h-4 w-4" aria-hidden />
@@ -73,15 +85,22 @@ export default function PassengerChatPage() {
                 Transit assistant
               </h1>
               <p className="truncate text-xs text-muted-foreground">
-                Preview · AI backend not connected yet
+                Lost & Found intake assistant
               </p>
             </div>
           </div>
+          <Link
+            to="/"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium transition hover:bg-muted sm:text-sm"
+          >
+            <LogOut className="h-3.5 w-3.5" aria-hidden />
+            End session
+          </Link>
         </div>
       </header>
 
-      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col overflow-hidden px-3 py-4 sm:px-4">
-        <div className="flex-1 space-y-4 overflow-y-auto pb-4 pr-1">
+      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col overflow-hidden px-3 sm:px-4">
+        <div className="flex-1 space-y-4 overflow-y-auto py-4 pr-1">
           {messages.map((msg) => (
             <div
               key={msg.id}
@@ -103,7 +122,7 @@ export default function PassengerChatPage() {
               <div
                 className={`max-w-[min(100%,28rem)] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm sm:text-[15px] ${
                   msg.role === "user"
-                    ? "rounded-tr-md bg-foreground text-background"
+                    ? "rounded-tr-md border border-border/80 bg-card text-card-foreground"
                     : "rounded-tl-md border border-border/80 bg-card text-card-foreground"
                 }`}
               >
@@ -126,7 +145,7 @@ export default function PassengerChatPage() {
 
         <form
           onSubmit={handleSend}
-          className="border-t border-border/80 bg-background/95 pt-3 backdrop-blur-sm"
+          className="shrink-0 border-t border-border/80 bg-background/95 py-3 backdrop-blur-sm"
         >
           <div className="flex gap-2 rounded-2xl border border-border bg-muted/30 p-1.5 shadow-inner focus-within:ring-2 focus-within:ring-ring/30">
             <label htmlFor="chat-input" className="sr-only">
@@ -150,9 +169,6 @@ export default function PassengerChatPage() {
               <span className="hidden sm:inline">Send</span>
             </button>
           </div>
-          <p className="mt-2 text-center text-[11px] text-muted-foreground">
-            Google sign-in and live AI will be enabled in a future update.
-          </p>
         </form>
       </div>
     </div>
