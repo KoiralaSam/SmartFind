@@ -7,19 +7,20 @@ import (
 	"smartfind/services/passenger-service/internal/core/domain"
 )
 
-type RegisterInput struct {
-	Email    string
-	Username string
-	Password string
-}
-
 type CreateLostReportInput struct {
 	PassengerID    string
 	ItemName       string
-	Description    string
+	ItemDescription string
+	ItemType       string
+	Brand          string
+	Model          string
+	Color          string
+	Material       string
+	ItemCondition  string
 	Category       string
 	LocationLost   string
 	RouteOrStation string
+	RouteID        string
 	DateLost       time.Time
 }
 
@@ -27,10 +28,17 @@ type LostReport struct {
 	ID                  string
 	ReporterPassengerID string
 	ItemName            string
-	Description         string
+	ItemDescription     string
+	ItemType            string
+	Brand               string
+	Model               string
+	Color               string
+	Material            string
+	ItemCondition       string
 	Category            string
 	LocationLost        string
 	RouteOrStation      string
+	RouteID             string
 	DateLost            time.Time
 	Status              string
 	CreatedAt           time.Time
@@ -45,10 +53,17 @@ type ListLostReportsInput struct {
 type FoundItemMatch struct {
 	FoundItemID     string
 	ItemName        string
-	Description     string
+	ItemDescription string
+	ItemType        string
+	Brand           string
+	Model           string
+	Color           string
+	Material        string
+	ItemCondition   string
 	Category        string
 	LocationFound   string
 	RouteOrStation  string
+	RouteID         string
 	DateFound       time.Time
 	Status          string
 	SimilarityScore float64
@@ -79,8 +94,7 @@ type ItemClaim struct {
 }
 
 // PassengerUsecase defines the inbound application port for passenger operations.
-type PassengerService interface {
-	Register(ctx context.Context, in RegisterInput) (*domain.Passenger, error)
+type PassengerUsecase interface {
 	Login(ctx context.Context, email string) (*domain.Passenger, error)
 	CreateLostReport(ctx context.Context, in CreateLostReportInput) (*LostReport, error)
 	ListLostReports(ctx context.Context, in ListLostReportsInput) ([]LostReport, error)
