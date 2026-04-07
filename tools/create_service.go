@@ -20,11 +20,12 @@ func main() {
 	basePath := filepath.Join("services", *serviceName+"-service")
 	dirs := []string{
 		"cmd",
-		"internal/domain",
+		"internal/core/domain",
+		"internal/core/ports/inbound",
+		"internal/core/ports/outbound",
 		"internal/service",
-		"internal/infrastructure/events",
-		"internal/infrastructure/grpc",
-		"internal/infrastructure/repository",
+		"internal/adapters/primary",
+		"internal/adapters/secondary",
 		"pkg/types",
 	}
 
@@ -51,13 +52,15 @@ services/%s-service/
 ├── cmd/                    # Application entry points
 │   └── main.go            # Main application setup
 ├── internal/              # Private application code
-│   ├── domain/           # Business domain models and interfaces
-│   ├── service/          # Business logic implementation
-│   │   └── service.go    # Service implementations
-│   └── infrastructure/   # External dependencies implementations (abstractions)
-│       ├── events/       # Event handling (RabbitMQ)
-│       ├── grpc/         # gRPC server handlers
-│       └── repository/   # Data persistence
+│   ├── core/             # Domain + ports (hexagon center)
+│   │   ├── domain/       # Business domain models
+│   │   └── ports/        # Inbound/outbound interfaces
+│   │       ├── inbound/  # Usecase interfaces
+│   │       └── outbound/ # Repository/gateway interfaces
+│   ├── service/          # Usecase implementations
+│   └── adapters/         # Primary/secondary adapters (hexagon edges)
+│       ├── primary/      # Inbound adapters (e.g., HTTP/gRPC handlers)
+│       └── secondary/    # Outbound adapters (e.g., Postgres, MQ)
 ├── pkg/                  # Public packages
 │   └── types/           # Shared types and models
 └── README.md            # This file
@@ -65,20 +68,18 @@ services/%s-service/
 
 ### Layer Responsibilities
 
-1. **Domain Layer** (` + "`internal/domain/`" + `)
-   - Contains business domain interfaces
-   - Defines contracts for repositories and services
-   - Pure business logic, no implementation details
+1. **Core Layer** (` + "`internal/core/`" + `)
+   - Domain models and port interfaces (inbound/outbound)
+   - Pure business logic contracts, no infrastructure details
 
 2. **Service Layer** (` + "`internal/service/`" + `)
    - Implements business logic
-   - Uses repository interfaces
+   - Uses outbound port interfaces
    - Coordinates between different parts of the system
 
-3. **Infrastructure Layer** (` + "`internal/infrastructure/`" + `)
-   - ` + "`repository/`" + `: Implements data persistence
-   - ` + "`events/`" + `: Handles event publishing and consuming
-   - ` + "`grpc/`" + `: Handles gRPC communication
+3. **Adapters Layer** (` + "`internal/adapters/`" + `)
+   - ` + "`primary/`" + `: Inbound adapters (HTTP/gRPC, CLI, etc.)
+   - ` + "`secondary/`" + `: Outbound adapters (DB, MQ, external APIs)
 
 4. **Public Types** (` + "`pkg/types/`" + `)
    - Contains shared types and models
@@ -104,14 +105,15 @@ services/%s-service/
 services/%s-service/
 ├── cmd/                    # Application entry points
 ├── internal/              # Private application code
-│   ├── domain/           # Business domain models and interfaces
-│   │   └── %s.go         # Core domain interfaces
-│   ├── service/          # Business logic implementation
-│   │   └── service.go    # Service implementations
-│   └── infrastructure/   # External dependencies implementations (abstractions)
-│       ├── events/       # Event handling (RabbitMQ)
-│       ├── grpc/         # gRPC server handlers
-│       └── repository/   # Data persistence
+│   ├── core/             # Domain + ports (hexagon center)
+│   │   ├── domain/
+│   │   └── ports/
+│   │       ├── inbound/
+│   │       └── outbound/
+│   ├── service/          # Usecase implementations
+│   └── adapters/         # Primary/secondary adapters
+│       ├── primary/
+│       └── secondary/
 ├── pkg/                  # Public packages
 │   └── types/           # Shared types and models
 └── README.md            # This file
