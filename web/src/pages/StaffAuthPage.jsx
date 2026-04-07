@@ -202,6 +202,39 @@ export default function StaffAuthPage() {
                 >
                   {submitting ? "Signing in…" : "Sign in"}
                 </button>
+
+                <div className="relative my-2">
+                  <div className="absolute inset-0 flex items-center">
+                    <span className="w-full border-t border-border" />
+                  </div>
+                  <div className="relative flex justify-center text-xs uppercase">
+                    <span className="bg-background/95 px-2 text-muted-foreground">
+                      or
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={async () => {
+                    setError("");
+                    setSubmitting(true);
+                    const result = await loginStaff(
+                      "staff@transit.local",
+                      "demo123",
+                    );
+                    setSubmitting(false);
+                    if (!result.ok) {
+                      setError(result.error);
+                      return;
+                    }
+                    navigate("/staff", { replace: true });
+                  }}
+                  className="inline-flex h-11 w-full items-center justify-center rounded-xl border border-border bg-muted/40 px-4 text-sm font-medium text-foreground transition hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                >
+                  Bypass — use demo account
+                </button>
               </form>
             ) : (
               <form onSubmit={handleSignup} className="mt-8 space-y-5">
