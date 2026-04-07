@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"smartfind/services/passenger-service/internal/core/domain"
@@ -18,21 +19,6 @@ func NewPassengerService(repo outbound.PassengerRepository) inbound.PassengerUse
 	return &PassengerService{repo: repo}
 }
 
-func (s *PassengerService) Register(ctx context.Context, in inbound.RegisterInput) (*domain.Passenger, error) {
-	_ = ctx
-	now := time.Now()
-	_ = s.repo
-
-	return &domain.Passenger{
-		ID:        "temp-id",
-		Email:     in.Email,
-		FullName:  in.Username, // maps to passengers.full_name in DB
-		Phone:     "",
-		CreatedAt: now,
-		UpdatedAt: now,
-	}, nil
-}
-
 func (s *PassengerService) Login(ctx context.Context, email string) (*domain.Passenger, error) {
 	_ = ctx
 	now := time.Now()
@@ -41,8 +27,40 @@ func (s *PassengerService) Login(ctx context.Context, email string) (*domain.Pas
 		Email:     email,
 		FullName:  "Passenger",
 		Phone:     "",
+		AvatarURL: "",
 		CreatedAt: now,
 		UpdatedAt: now,
 	}, nil
+}
+
+func (s *PassengerService) CreateLostReport(ctx context.Context, in inbound.CreateLostReportInput) (*inbound.LostReport, error) {
+	_ = ctx
+	_ = in
+	return nil, errors.New("CreateLostReport not implemented")
+}
+
+func (s *PassengerService) ListLostReports(ctx context.Context, in inbound.ListLostReportsInput) ([]inbound.LostReport, error) {
+	_ = ctx
+	_ = in
+	return nil, errors.New("ListLostReports not implemented")
+}
+
+func (s *PassengerService) DeleteLostReport(ctx context.Context, passengerID, lostReportID string) error {
+	_ = ctx
+	_ = passengerID
+	_ = lostReportID
+	return errors.New("DeleteLostReport not implemented")
+}
+
+func (s *PassengerService) SearchFoundItemMatches(ctx context.Context, in inbound.SearchFoundItemsInput) ([]inbound.FoundItemMatch, error) {
+	_ = ctx
+	_ = in
+	return nil, errors.New("SearchFoundItemMatches not implemented")
+}
+
+func (s *PassengerService) FileClaim(ctx context.Context, in inbound.FileClaimInput) (*inbound.ItemClaim, error) {
+	_ = ctx
+	_ = in
+	return nil, errors.New("FileClaim not implemented")
 }
 

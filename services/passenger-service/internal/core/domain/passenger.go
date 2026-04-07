@@ -8,6 +8,7 @@ type Passenger struct {
 	Email     string
 	FullName  string
 	Phone     string
+	AvatarURL string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
