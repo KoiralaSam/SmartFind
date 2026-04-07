@@ -64,4 +64,6 @@ build/
 secrets.yaml
 
 #python
-.venv/
+.venv/infra/development/k8s/chat-agent-secrets.yaml
+__pycache__/
+*.pyc
