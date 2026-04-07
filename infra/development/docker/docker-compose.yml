@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: smartfind
+      POSTGRES_USER: smartfind
+      POSTGRES_PASSWORD: smartfind
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartfind -d smartfind"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    volumes:
+      - smartfind-postgres-data:/var/lib/postgresql/data
+
+volumes:
+  smartfind-postgres-data:
