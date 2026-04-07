@@ -40,3 +40,4 @@ export function registerStaffAccount(account) {
   ];
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
 }
+
