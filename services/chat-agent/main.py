@@ -5,4 +5,4 @@ app = FastAPI()
 
 @app.get("/health")
 def health():
-    return "Chat bot is running!!!"
+    return {"message": "Chat bot is running!!!"}
