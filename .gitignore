@@ -66,6 +66,9 @@ infra/development/k8s/chat-agent-secrets.yaml
 
 #python
 .venv/
+.venv/
+venv/
+env/
 __pycache__/
 *.pyc
 # Environment variables
@@ -85,3 +88,7 @@ build/
 # IDE
 .vscode/
 .idea/
+.temp_verify_env
+.venv/
+__pycache__/
+*.pyc
