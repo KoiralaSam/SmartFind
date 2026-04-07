@@ -2,7 +2,7 @@ CREATE TYPE found_item_status AS ENUM ('unclaimed', 'claimed', 'returned', 'arch
 CREATE TYPE claim_status AS ENUM ('pending', 'approved', 'rejected', 'cancelled');
 CREATE TYPE lost_report_status AS ENUM ('open', 'matched', 'closed');
 
-CREATE TABLE users (
+CREATE TABLE passengers (
   id UUID PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
   full_name TEXT NOT NULL,
@@ -36,7 +36,7 @@ CREATE TABLE found_items (
 
 CREATE TABLE lost_reports (
   id UUID PRIMARY KEY,
-  reporter_user_id UUID NOT NULL REFERENCES users(id),
+  reporter_passenger_id UUID NOT NULL REFERENCES passengers(id),
   item_name TEXT NOT NULL,
   description TEXT,
   category TEXT,
@@ -51,7 +51,7 @@ CREATE TABLE lost_reports (
 CREATE TABLE item_claims (
   id UUID PRIMARY KEY,
   item_id UUID NOT NULL REFERENCES found_items(id) ON DELETE CASCADE,
-  claimant_user_id UUID NOT NULL REFERENCES users(id),
+  claimant_passenger_id UUID NOT NULL REFERENCES passengers(id),
   lost_report_id UUID REFERENCES lost_reports(id) ON DELETE SET NULL,
   message TEXT,
   status claim_status NOT NULL DEFAULT 'pending',
@@ -61,7 +61,7 @@ CREATE TABLE item_claims (
 
 CREATE INDEX idx_found_items_posted_by_staff_id ON found_items (posted_by_staff_id);
 CREATE INDEX idx_found_items_status ON found_items (status);
-CREATE INDEX idx_lost_reports_reporter_user_id ON lost_reports (reporter_user_id);
+CREATE INDEX idx_lost_reports_reporter_passenger_id ON lost_reports (reporter_passenger_id);
 CREATE INDEX idx_lost_reports_status ON lost_reports (status);
 CREATE INDEX idx_item_claims_item_id ON item_claims (item_id);
-CREATE INDEX idx_item_claims_claimant_user_id ON item_claims (claimant_user_id);
+CREATE INDEX idx_item_claims_claimant_passenger_id ON item_claims (claimant_passenger_id);
