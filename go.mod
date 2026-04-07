@@ -1,4 +1,4 @@
-module ride-sharing
+module smartfind
 
 go 1.23.0
 
