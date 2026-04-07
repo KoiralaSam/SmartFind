@@ -3,3 +3,5 @@ uvicorn[standard]
 websockets
 groq
 python-dotenv
+psycopg[binary]
+psycopg-pool
