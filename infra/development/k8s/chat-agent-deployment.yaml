@@ -27,6 +27,11 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: ENVIRONMENT
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: chat-agent-secret
+                  key: GROQ_API_KEY
           readinessProbe:
             httpGet:
               path: /health
