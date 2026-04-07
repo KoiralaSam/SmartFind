@@ -33,8 +33,8 @@ spec:
               value: "development"
             - name: VITE_API_BASE_URL
               value: "http://smartfind-api:8081"
-            - name: VITE_AGENTS_BASE_URL
-              value: "http://smartfind-agents:8090"
+            - name: CHAT_AGENT_URL
+              value: "http://chat-agent:8090"
             # Google OAuth client ID for passenger sign-in (Vite injects at dev server start)
             - name: VITE_GOOGLE_CLIENT_ID
               value: ""
