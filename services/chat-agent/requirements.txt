@@ -1,2 +1,5 @@
 fastapi
-uvicorn
+uvicorn[standard]
+websockets
+groq
+python-dotenv
