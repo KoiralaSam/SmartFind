@@ -1,0 +1,115 @@
+syntax = "proto3";
+
+package smartfind.passenger.v1;
+
+option go_package = "smartfind/proto;smartfindpb";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+service PassengerService {
+  rpc Register(RegisterRequest) returns (Passenger);
+  rpc Login(LoginRequest) returns (Passenger);
+  rpc CreateLostReport(CreateLostReportRequest) returns (LostReport);
+  rpc ListLostReports(ListLostReportsRequest) returns (ListLostReportsResponse);
+  rpc DeleteLostReport(DeleteLostReportRequest) returns (google.protobuf.Empty);
+  rpc SearchFoundItemMatches(SearchFoundItemMatchesRequest) returns (SearchFoundItemMatchesResponse);
+  rpc FileClaim(FileClaimRequest) returns (ItemClaim);
+}
+
+message Passenger {
+  string id = 1;
+  string email = 2;
+  string full_name = 3;
+  string phone = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+message RegisterRequest {
+  string email = 1;
+  string username = 2;
+  string password = 3;
+}
+
+message LoginRequest {
+  string email = 1;
+}
+
+message LostReport {
+  string id = 1;
+  string reporter_passenger_id = 2;
+  string item_name = 3;
+  string description = 4;
+  string category = 5;
+  string location_lost = 6;
+  string route_or_station = 7;
+  google.protobuf.Timestamp date_lost = 8;
+  string status = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message CreateLostReportRequest {
+  string passenger_id = 1;
+  string item_name = 2;
+  string description = 3;
+  string category = 4;
+  string location_lost = 5;
+  string route_or_station = 6;
+  google.protobuf.Timestamp date_lost = 7;
+}
+
+message ListLostReportsRequest {
+  string passenger_id = 1;
+  string status = 2;
+}
+
+message ListLostReportsResponse {
+  repeated LostReport reports = 1;
+}
+
+message DeleteLostReportRequest {
+  string passenger_id = 1;
+  string lost_report_id = 2;
+}
+
+message FoundItemMatch {
+  string found_item_id = 1;
+  string item_name = 2;
+  string description = 3;
+  string category = 4;
+  string location_found = 5;
+  string route_or_station = 6;
+  google.protobuf.Timestamp date_found = 7;
+  string status = 8;
+  double similarity_score = 9;
+}
+
+message SearchFoundItemMatchesRequest {
+  string passenger_id = 1;
+  string lost_report_id = 2;
+  int32 limit = 3;
+}
+
+message SearchFoundItemMatchesResponse {
+  repeated FoundItemMatch matches = 1;
+}
+
+message FileClaimRequest {
+  string passenger_id = 1;
+  string found_item_id = 2;
+  string lost_report_id = 3;
+  string message = 4;
+}
+
+message ItemClaim {
+  string id = 1;
+  string item_id = 2;
+  string claimant_passenger_id = 3;
+  string lost_report_id = 4;
+  string message = 5;
+  string status = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}

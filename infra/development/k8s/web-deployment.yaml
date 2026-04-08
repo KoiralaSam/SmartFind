@@ -35,6 +35,8 @@ spec:
               value: "http://smartfind-api:8081"
             - name: CHAT_AGENT_URL
               value: "http://chat-agent:8090"
+            - name: DETAIL_EXTRACTER_URL
+              value: "http://detail-extracter-agent:8091"
             # Google OAuth client ID for passenger sign-in (Vite injects at dev server start)
             - name: VITE_GOOGLE_CLIENT_ID
               value: ""
