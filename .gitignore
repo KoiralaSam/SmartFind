@@ -88,7 +88,7 @@ build/
 # IDE
 .vscode/
 .idea/
-.temp_verify_env
+.tmp_verify_env
 .venv/
 __pycache__/
 *.pyc
