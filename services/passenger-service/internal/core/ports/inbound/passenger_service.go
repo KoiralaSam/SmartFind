@@ -8,20 +8,20 @@ import (
 )
 
 type CreateLostReportInput struct {
-	PassengerID    string
-	ItemName       string
+	PassengerID     string
+	ItemName        string
 	ItemDescription string
-	ItemType       string
-	Brand          string
-	Model          string
-	Color          string
-	Material       string
-	ItemCondition  string
-	Category       string
-	LocationLost   string
-	RouteOrStation string
-	RouteID        string
-	DateLost       time.Time
+	ItemType        string
+	Brand           string
+	Model           string
+	Color           string
+	Material        string
+	ItemCondition   string
+	Category        string
+	LocationLost    string
+	RouteOrStation  string
+	RouteID         string
+	DateLost        time.Time
 }
 
 type LostReport struct {
