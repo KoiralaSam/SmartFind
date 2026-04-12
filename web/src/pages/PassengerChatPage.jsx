@@ -48,7 +48,9 @@ export default function PassengerChatPage() {
         });
 
         if (!response.ok) {
-          throw new Error(`API error: ${response.statusText}`);
+          const errBody = await response.json().catch(() => null);
+          const detail = errBody?.detail || response.statusText;
+          throw new Error(detail);
         }
 
         const data = await response.json();

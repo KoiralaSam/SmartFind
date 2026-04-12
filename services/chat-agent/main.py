@@ -4,10 +4,14 @@ from pydantic import BaseModel
 from typing import List
 import os
 import json
+import logging
 from dotenv import load_dotenv, find_dotenv
 from groq import Groq
 
 load_dotenv(find_dotenv())
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("chat-agent")
 
 app = FastAPI()
 
@@ -155,6 +159,7 @@ def chat(req: ChatRequest):
         reply = call_groq(conversation)
         return ChatResponse(reply=reply, done=is_done(reply))
     except Exception as e:
+        logger.error(f"Chat error: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

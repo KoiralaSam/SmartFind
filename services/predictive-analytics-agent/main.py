@@ -182,89 +182,54 @@ def tool_fetch_route_statistics(days_back: int) -> dict:
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
-                # Lost reports: prefer route name from routes table, fall back to free-text field
+                # Passenger lost reports grouped by route / station
                 cur.execute(
                     """
                     SELECT
                         COALESCE(r.route_name, lr.route_or_station, 'Unknown') AS location,
                         r.id::text                                              AS route_id,
-                        COUNT(lr.id)                                            AS lost_count,
+                        COUNT(lr.id)                                            AS incident_count,
+                        COUNT(lr.id) FILTER (WHERE lr.status = 'open')         AS open_count,
+                        COUNT(lr.id) FILTER (WHERE lr.status = 'matched')      AS matched_count,
                         MAX(lr.created_at)                                      AS last_incident
                     FROM lost_reports lr
                     LEFT JOIN routes r ON r.id = lr.route_id
                     WHERE lr.created_at >= %s
                     GROUP BY COALESCE(r.route_name, lr.route_or_station, 'Unknown'), r.id
-                    ORDER BY lost_count DESC
+                    ORDER BY incident_count DESC
                     LIMIT 20
                     """,
                     (since,),
                 )
-                lost_by_route = cur.fetchall()
+                rows = cur.fetchall()
 
-                # Found items per route/station
                 cur.execute(
-                    """
-                    SELECT
-                        COALESCE(r.route_name, fi.route_or_station, 'Unknown') AS location,
-                        r.id::text                                              AS route_id,
-                        COUNT(fi.id)                                            AS found_count
-                    FROM found_items fi
-                    LEFT JOIN routes r ON r.id = fi.route_id
-                    WHERE fi.created_at >= %s
-                    GROUP BY COALESCE(r.route_name, fi.route_or_station, 'Unknown'), r.id
-                    ORDER BY found_count DESC
-                    LIMIT 20
-                    """,
+                    "SELECT COUNT(*) AS n FROM lost_reports WHERE created_at >= %s",
                     (since,),
                 )
-                found_by_route = cur.fetchall()
-
-                # Overall totals
-                cur.execute("SELECT COUNT(*) AS n FROM lost_reports WHERE created_at >= %s", (since,))
-                total_lost = cur.fetchone()["n"]
-                cur.execute("SELECT COUNT(*) AS n FROM found_items WHERE created_at >= %s", (since,))
-                total_found = cur.fetchone()["n"]
+                total = cur.fetchone()["n"]
 
     except Exception as e:
         logger.error(f"DB error in fetch_route_statistics: {e}")
-        return {"error": str(e), "lost_by_route": [], "found_by_route": [], "total_incidents": 0}
+        return {"error": str(e), "locations": [], "total_incidents": 0}
 
-    # Merge lost + found into a combined incidents-per-location view
-    merged: dict[str, dict] = {}
-    for row in lost_by_route:
-        loc = row["location"]
-        merged[loc] = {
-            "location": loc,
+    locations = [
+        {
+            "location": row["location"],
             "route_id": row["route_id"],
-            "lost_count": row["lost_count"],
-            "found_count": 0,
-            "total_incidents": row["lost_count"],
+            "incident_count": row["incident_count"],
+            "open_count": row["open_count"],
+            "matched_count": row["matched_count"],
             "last_incident": row["last_incident"],
         }
-    for row in found_by_route:
-        loc = row["location"]
-        if loc in merged:
-            merged[loc]["found_count"] = row["found_count"]
-            merged[loc]["total_incidents"] += row["found_count"]
-        else:
-            merged[loc] = {
-                "location": loc,
-                "route_id": row["route_id"],
-                "lost_count": 0,
-                "found_count": row["found_count"],
-                "total_incidents": row["found_count"],
-                "last_incident": None,
-            }
-
-    ranked = sorted(merged.values(), key=lambda x: x["total_incidents"], reverse=True)
+        for row in rows
+    ]
 
     return {
         "period_days": days_back,
         "since": since.isoformat(),
-        "total_lost_reports": total_lost,
-        "total_found_items": total_found,
-        "total_incidents": total_lost + total_found,
-        "locations": ranked,
+        "total_incidents": total,
+        "locations": locations,
     }
 
 
@@ -401,10 +366,10 @@ def tool_generate_hotspot_report(
     """Ask the LLM to interpret all statistics and produce the final structured report."""
 
     system_prompt = """You are a transit safety analytics AI for a lost & found system.
-You have been given three data sources:
-1. route_stats: incident counts per route/station
+You have been given three data sources derived exclusively from passenger lost item reports:
+1. route_stats: lost report counts per route/station (passenger submissions only)
 2. temporal_stats: time-based patterns (day-of-week, month, hour)
-3. category_stats: item categories lost at each location
+3. category_stats: item categories most reported lost at each location
 
 Your task: produce a structured JSON hotspot report.
 
@@ -743,11 +708,13 @@ def run_analytics(req: RunAnalyticsRequest):
 def get_heatmap(days: int = 7):
     """
     Return heatmap data for the latest stored hotspot report.
-    If no report exists yet, falls back to a live lightweight query.
+    Falls back to a live lightweight query if no report is stored yet,
+    and returns an empty response if no data exists at all.
 
     Query param:
       days  — how many days of history to consider when falling back (default 7)
     """
+    row = None
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
@@ -762,41 +729,47 @@ def get_heatmap(days: int = 7):
                 )
                 row = cur.fetchone()
     except Exception as e:
-        logger.error(f"DB error in get_heatmap: {e}")
-        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+        # Table may not exist yet (migration pending) — fall through to live query
+        logger.warning(f"Could not query hotspot_reports (migration pending?): {e}")
 
-    if row is None:
-        # No stored report — return a lightweight live snapshot
-        try:
-            live = tool_fetch_route_statistics(days)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"No stored report and live query failed: {e}")
+    if row is not None:
+        return {
+            "source": "stored_report",
+            "report_id": row["id"],
+            "report_date": row["report_date"].isoformat() if row["report_date"] else None,
+            "generated_at": row["generated_at"].isoformat() if row["generated_at"] else None,
+            "total_incidents": row["total_incidents"],
+            "hotspots": row["hotspots"],
+            "temporal_insights": row["temporal_insights"],
+            "summary": row["ai_summary"],
+            "recommendations": row["ai_recommendations"],
+        }
 
-        if live.get("total_incidents", 0) == 0:
-            return {
-                "source": "live",
-                "message": "No incidents recorded yet. The heatmap will populate as data arrives.",
-                "total_incidents": 0,
-                "locations": [],
-            }
+    # No stored report — try a lightweight live aggregation
+    try:
+        live = tool_fetch_route_statistics(days)
+    except Exception as e:
+        logger.warning(f"Live query also failed: {e}")
+        return {
+            "source": "unavailable",
+            "message": "No incidents recorded yet. The heatmap will populate as data arrives.",
+            "total_incidents": 0,
+            "hotspots": [],
+        }
 
+    if live.get("total_incidents", 0) == 0:
         return {
             "source": "live",
-            "period_days": days,
-            "total_incidents": live["total_incidents"],
-            "locations": live.get("locations", []),
+            "message": "No incidents recorded yet. The heatmap will populate as data arrives.",
+            "total_incidents": 0,
+            "hotspots": [],
         }
 
     return {
-        "source": "stored_report",
-        "report_id": row["id"],
-        "report_date": row["report_date"].isoformat() if row["report_date"] else None,
-        "generated_at": row["generated_at"].isoformat() if row["generated_at"] else None,
-        "total_incidents": row["total_incidents"],
-        "hotspots": row["hotspots"],
-        "temporal_insights": row["temporal_insights"],
-        "summary": row["ai_summary"],
-        "recommendations": row["ai_recommendations"],
+        "source": "live",
+        "period_days": days,
+        "total_incidents": live["total_incidents"],
+        "hotspots": live.get("locations", []),
     }
 
 
@@ -806,6 +779,7 @@ def get_hotspots(top: int = 10):
     Return the top N high-risk routes/stations from the latest stored report.
     Falls back to a live aggregation if no report exists.
     """
+    row = None
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
@@ -819,8 +793,8 @@ def get_hotspots(top: int = 10):
                 )
                 row = cur.fetchone()
     except Exception as e:
-        logger.error(f"DB error in get_hotspots: {e}")
-        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+        # Table may not exist yet — fall through to live query
+        logger.warning(f"Could not query hotspot_reports (migration pending?): {e}")
 
     if row is None:
         # No stored report — return live ranking
@@ -854,6 +828,7 @@ def get_hotspots(top: int = 10):
 @app.get("/analytics/history")
 def get_history(limit: int = 30):
     """Return a list of past hotspot reports (metadata only, no full hotspot payload)."""
+    rows = []
     try:
         with get_conn() as conn:
             with conn.cursor() as cur:
@@ -868,7 +843,7 @@ def get_history(limit: int = 30):
                 )
                 rows = cur.fetchall()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Database error: {e}")
+        logger.warning(f"Could not query hotspot_reports history (migration pending?): {e}")
 
     return {
         "count": len(rows),
