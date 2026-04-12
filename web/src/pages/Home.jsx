@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Bus, Shield, UserRound } from "lucide-react";
 import { useAuth } from "../context/useAuth";
 
@@ -8,6 +8,12 @@ const TRANSIT_HERO_IMAGE =
 
 export default function Home() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  function switchRole(targetPath) {
+    logout();
+    navigate(targetPath, { replace: true });
+  }
 
   return (
     <div className="relative min-h-screen">
@@ -37,12 +43,6 @@ export default function Home() {
               <span className="hidden max-w-[120px] truncate text-white/80 sm:inline sm:max-w-[180px]">
                 {user.name}
               </span>
-              <Link
-                to={user.role === "staff" ? "/staff" : "/passenger"}
-                className="rounded-full border border-white/30 bg-white/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/20 sm:text-sm"
-              >
-                Open app
-              </Link>
               <button
                 type="button"
                 onClick={() => logout()}
@@ -106,11 +106,98 @@ export default function Home() {
           </Link>
         </div>
       ) : (
-        <div className="relative z-10 flex min-h-[calc(100vh-3.5rem)] items-center justify-center px-4">
-          <p className="text-center text-lg text-white/90">
-            Use <strong className="text-white">Open app</strong> above to go to
-            your dashboard.
-          </p>
+        <div className="relative z-10 grid min-h-[calc(100vh-3.5rem)] grid-cols-1 md:grid-cols-2">
+          {/* Staff panel */}
+          {user?.role === "staff" ? (
+            <Link
+              to="/staff"
+              className="group flex min-h-[45vh] flex-col justify-center border-b border-white/15 bg-black/25 p-8 transition hover:bg-black/40 md:min-h-[calc(100vh-3.5rem)] md:border-b-0 md:border-r md:p-12 lg:p-16"
+            >
+              <div className="mx-auto w-full max-w-md">
+                <div className="mb-4 inline-flex rounded-full border border-white/20 bg-white/10 p-3 text-white backdrop-blur-sm">
+                  <Shield className="h-8 w-8" strokeWidth={1.5} aria-hidden />
+                </div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Transit staff</p>
+                <h2 className="mt-2 text-balance text-3xl font-semibold tracking-tight text-white md:text-4xl">
+                  Agency sign in &amp; register
+                </h2>
+                <p className="mt-3 text-pretty text-sm leading-relaxed text-white/80 md:text-base">
+                  Use your work email and password. New accounts need a transit code from your administrator.
+                </p>
+                <span className="mt-8 inline-flex h-12 items-center justify-center rounded-xl bg-white px-8 text-sm font-semibold text-black transition group-hover:bg-white/95">
+                  Continue as staff
+                </span>
+              </div>
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={() => switchRole("/staff/auth")}
+              className="group flex min-h-[45vh] flex-col justify-center border-b border-white/15 bg-black/25 p-8 text-left transition hover:bg-black/40 md:min-h-[calc(100vh-3.5rem)] md:border-b-0 md:border-r md:p-12 lg:p-16"
+            >
+              <div className="mx-auto w-full max-w-md">
+                <div className="mb-4 inline-flex rounded-full border border-white/20 bg-white/10 p-3 text-white backdrop-blur-sm">
+                  <Shield className="h-8 w-8" strokeWidth={1.5} aria-hidden />
+                </div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Transit staff</p>
+                <h2 className="mt-2 text-balance text-3xl font-semibold tracking-tight text-white md:text-4xl">
+                  Agency sign in &amp; register
+                </h2>
+                <p className="mt-3 text-pretty text-sm leading-relaxed text-white/80 md:text-base">
+                  Use your work email and password. New accounts need a transit code from your administrator.
+                </p>
+                <span className="mt-8 inline-flex h-12 items-center justify-center rounded-xl bg-white px-8 text-sm font-semibold text-black transition group-hover:bg-white/95">
+                  Continue as staff
+                </span>
+              </div>
+            </button>
+          )}
+
+          {/* Passenger panel */}
+          {user?.role === "passenger" ? (
+            <Link
+              to="/passenger"
+              className="group flex min-h-[45vh] flex-col justify-center bg-black/15 p-8 transition hover:bg-black/30 md:min-h-[calc(100vh-3.5rem)] md:p-12 lg:p-16"
+            >
+              <div className="mx-auto w-full max-w-md">
+                <div className="mb-4 inline-flex rounded-full border border-white/20 bg-white/10 p-3 text-white backdrop-blur-sm">
+                  <UserRound className="h-8 w-8" strokeWidth={1.5} aria-hidden />
+                </div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Passenger</p>
+                <h2 className="mt-2 text-balance text-3xl font-semibold tracking-tight text-white md:text-4xl">
+                  Report a lost item
+                </h2>
+                <p className="mt-3 text-pretty text-sm leading-relaxed text-white/80 md:text-base">
+                  Sign in with your Google account so we can contact you if your property is found.
+                </p>
+                <span className="mt-8 inline-flex h-12 items-center justify-center rounded-xl border-2 border-white bg-transparent px-8 text-sm font-semibold text-white transition group-hover:bg-white group-hover:text-black">
+                  Continue as passenger
+                </span>
+              </div>
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={() => switchRole("/passenger/sign-in")}
+              className="group flex min-h-[45vh] flex-col justify-center bg-black/15 p-8 text-left transition hover:bg-black/30 md:min-h-[calc(100vh-3.5rem)] md:p-12 lg:p-16"
+            >
+              <div className="mx-auto w-full max-w-md">
+                <div className="mb-4 inline-flex rounded-full border border-white/20 bg-white/10 p-3 text-white backdrop-blur-sm">
+                  <UserRound className="h-8 w-8" strokeWidth={1.5} aria-hidden />
+                </div>
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-white/70">Passenger</p>
+                <h2 className="mt-2 text-balance text-3xl font-semibold tracking-tight text-white md:text-4xl">
+                  Report a lost item
+                </h2>
+                <p className="mt-3 text-pretty text-sm leading-relaxed text-white/80 md:text-base">
+                  Sign in with your Google account so we can contact you if your property is found.
+                </p>
+                <span className="mt-8 inline-flex h-12 items-center justify-center rounded-xl border-2 border-white bg-transparent px-8 text-sm font-semibold text-white transition group-hover:bg-white group-hover:text-black">
+                  Continue as passenger
+                </span>
+              </div>
+            </button>
+          )}
         </div>
       )}
     </div>
