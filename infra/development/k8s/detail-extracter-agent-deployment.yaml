@@ -30,7 +30,7 @@ spec:
             - name: GROQ_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: groq-secret
+                  name: groq-api-key
                   key: GROQ_API_KEY
           readinessProbe:
             httpGet:
