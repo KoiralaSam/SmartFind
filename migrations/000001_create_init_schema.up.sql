@@ -1,9 +1,11 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 CREATE TYPE found_item_status AS ENUM ('unclaimed', 'claimed', 'returned', 'archived');
 CREATE TYPE claim_status AS ENUM ('pending', 'approved', 'rejected', 'cancelled');
 CREATE TYPE lost_report_status AS ENUM ('open', 'matched', 'closed');
 
 CREATE TABLE passengers (
-  id UUID PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email TEXT UNIQUE NOT NULL,
   full_name TEXT NOT NULL,
   phone TEXT,
@@ -12,7 +14,7 @@ CREATE TABLE passengers (
 );
 
 CREATE TABLE staff (
-  id UUID PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_id TEXT UNIQUE NOT NULL,
   full_name TEXT NOT NULL,
   email TEXT UNIQUE,
@@ -21,7 +23,7 @@ CREATE TABLE staff (
 );
 
 CREATE TABLE found_items (
-  id UUID PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   posted_by_staff_id UUID NOT NULL REFERENCES staff(id),
   item_name TEXT NOT NULL,
   description TEXT,
@@ -35,7 +37,7 @@ CREATE TABLE found_items (
 );
 
 CREATE TABLE lost_reports (
-  id UUID PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   reporter_passenger_id UUID NOT NULL REFERENCES passengers(id),
   item_name TEXT NOT NULL,
   description TEXT,
@@ -49,7 +51,7 @@ CREATE TABLE lost_reports (
 );
 
 CREATE TABLE item_claims (
-  id UUID PRIMARY KEY,
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   item_id UUID NOT NULL REFERENCES found_items(id) ON DELETE CASCADE,
   claimant_passenger_id UUID NOT NULL REFERENCES passengers(id),
   lost_report_id UUID REFERENCES lost_reports(id) ON DELETE SET NULL,
