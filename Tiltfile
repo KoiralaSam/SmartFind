@@ -20,9 +20,16 @@ docker_build(
   dockerfile="./infra/development/docker/detail-extracter-agent.Dockerfile",
 )
 
+docker_build(
+  "smartfind/predictive-analytics-agent",
+  ".",
+  dockerfile="./infra/development/docker/predictive-analytics-agent.Dockerfile",
+)
+
 k8s_yaml("./infra/development/k8s/web-deployment.yaml")
 k8s_yaml("./infra/development/k8s/chat-agent-deployment.yaml")
 k8s_yaml("./infra/development/k8s/detail-extracter-agent-deployment.yaml")
+k8s_yaml("./infra/development/k8s/predictive-analytics-agent-deployment.yaml")
 k8s_resource("postgres", port_forwards=5432, labels="infrastructure")
 
 local_resource(
@@ -51,3 +58,4 @@ echo "Migrations completed."
 k8s_resource("web", port_forwards=5173, labels="frontend", resource_deps=["db-migrate"])
 k8s_resource("chat-agent", port_forwards=8090, labels="services", resource_deps=["db-migrate"])
 k8s_resource("detail-extracter-agent", port_forwards=8091, labels="services", resource_deps=["db-migrate"])
+k8s_resource("predictive-analytics-agent", port_forwards=8092, labels="services", resource_deps=["db-migrate"])
