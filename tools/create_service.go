@@ -117,5 +117,5 @@ services/%s-service/
 ├── pkg/                  # Public packages
 │   └── types/           # Shared types and models
 └── README.md            # This file
-`, *serviceName, *serviceName)
+`, *serviceName)
 } 

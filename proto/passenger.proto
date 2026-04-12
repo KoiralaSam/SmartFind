@@ -8,8 +8,7 @@ import "google/protobuf/empty.proto";
 import "google/protobuf/timestamp.proto";
 
 service PassengerService {
-  rpc Register(RegisterRequest) returns (Passenger);
-  rpc Login(LoginRequest) returns (Passenger);
+  rpc Login(LoginRequest) returns (LoginResponse);
   rpc CreateLostReport(CreateLostReportRequest) returns (LostReport);
   rpc ListLostReports(ListLostReportsRequest) returns (ListLostReportsResponse);
   rpc DeleteLostReport(DeleteLostReportRequest) returns (google.protobuf.Empty);
@@ -24,40 +23,54 @@ message Passenger {
   string phone = 4;
   google.protobuf.Timestamp created_at = 5;
   google.protobuf.Timestamp updated_at = 6;
-}
-
-message RegisterRequest {
-  string email = 1;
-  string username = 2;
-  string password = 3;
+  string avatar_url = 7;
 }
 
 message LoginRequest {
-  string email = 1;
+  string id_token = 1;
+}
+
+message LoginResponse {
+  Passenger passenger = 1;
+  string session_token = 2;
 }
 
 message LostReport {
   string id = 1;
   string reporter_passenger_id = 2;
   string item_name = 3;
-  string description = 4;
-  string category = 5;
-  string location_lost = 6;
-  string route_or_station = 7;
-  google.protobuf.Timestamp date_lost = 8;
-  string status = 9;
-  google.protobuf.Timestamp created_at = 10;
-  google.protobuf.Timestamp updated_at = 11;
+  string item_description = 4;
+  string item_type = 5;
+  string brand = 6;
+  string model = 7;
+  string color = 8;
+  string material = 9;
+  string item_condition = 10;
+  string category = 11;
+  string location_lost = 12;
+  string route_or_station = 13;
+  string route_id = 14;
+  google.protobuf.Timestamp date_lost = 15;
+  string status = 16;
+  google.protobuf.Timestamp created_at = 17;
+  google.protobuf.Timestamp updated_at = 18;
 }
 
 message CreateLostReportRequest {
   string passenger_id = 1;
   string item_name = 2;
-  string description = 3;
-  string category = 4;
-  string location_lost = 5;
-  string route_or_station = 6;
-  google.protobuf.Timestamp date_lost = 7;
+  string item_description = 3;
+  string item_type = 4;
+  string brand = 5;
+  string model = 6;
+  string color = 7;
+  string material = 8;
+  string item_condition = 9;
+  string category = 10;
+  string location_lost = 11;
+  string route_or_station = 12;
+  string route_id = 13;
+  google.protobuf.Timestamp date_lost = 14;
 }
 
 message ListLostReportsRequest {
@@ -77,13 +90,20 @@ message DeleteLostReportRequest {
 message FoundItemMatch {
   string found_item_id = 1;
   string item_name = 2;
-  string description = 3;
-  string category = 4;
-  string location_found = 5;
-  string route_or_station = 6;
-  google.protobuf.Timestamp date_found = 7;
-  string status = 8;
-  double similarity_score = 9;
+  string item_description = 3;
+  string item_type = 4;
+  string brand = 5;
+  string model = 6;
+  string color = 7;
+  string material = 8;
+  string item_condition = 9;
+  string category = 10;
+  string location_found = 11;
+  string route_or_station = 12;
+  string route_id = 13;
+  google.protobuf.Timestamp date_found = 14;
+  string status = 15;
+  double similarity_score = 16;
 }
 
 message SearchFoundItemMatchesRequest {
