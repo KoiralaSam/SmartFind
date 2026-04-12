@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
+  BarChart3,
   CheckCircle2,
   Clock,
   ImagePlus,
@@ -12,8 +13,23 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "../context/useAuth";
+import AnalyticsPanel from "./AnalyticsPanel";
 
 const STORAGE_KEY = "smartfind-found-items";
+
+const CATEGORIES = [
+  "Bags & Luggage",
+  "Electronics",
+  "Clothing & Accessories",
+  "Documents & Cards",
+  "Keys",
+  "Bottles & Containers",
+  "Books & Stationery",
+  "Toys & Games",
+  "Other",
+];
+
+const MAX_PHOTOS = 5;
 
 function loadItems() {
   try {
@@ -148,14 +164,17 @@ export default function StaffDashboard() {
   const [locationFound, setLocationFound] = useState("");
   const [routeOrStation, setRouteOrStation] = useState("");
   const [dateFound, setDateFound] = useState("");
-  const [imagePreview, setImagePreview] = useState(null);
-  const [imageData, setImageData] = useState(null);
+  // photos: array of { id, url (data-URI for preview), data (base64 for API) }
+  const [photos, setPhotos] = useState([]);
   const [uploadSuccess, setUploadSuccess] = useState(false);
 
   // AI-extracted detail fields
   const [extractedDetails, setExtractedDetails] = useState(null);
   const [extracting, setExtracting] = useState(false);
   const [extractError, setExtractError] = useState(null);
+  // Editable fields pre-filled by AI
+  const [editableDescription, setEditableDescription] = useState("");
+  const [editableCategory, setEditableCategory] = useState("");
 
   useEffect(() => {
     saveItems(items);
@@ -165,56 +184,85 @@ export default function StaffDashboard() {
   const claimed = items.filter((i) => i.status === "claimed");
 
   async function handleImageChange(e) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const base64 = ev.target.result;
-      setImagePreview(base64);
-      setImageData(base64);
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
 
-      // Call AI agent to extract item details
+    // Enforce max photos limit
+    const slots = MAX_PHOTOS - photos.length;
+    const toAdd = files.slice(0, slots);
+    const isFirst = photos.length === 0;
+
+    // Read all selected files in parallel
+    const newPhotos = await Promise.all(
+      toAdd.map(
+        (file) =>
+          new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (ev) =>
+              resolve({ id: crypto.randomUUID(), url: ev.target.result, data: ev.target.result });
+            reader.readAsDataURL(file);
+          }),
+      ),
+    );
+
+    setPhotos((prev) => [...prev, ...newPhotos]);
+
+    // Run AI extraction on the primary (first) photo only
+    if (isFirst && newPhotos.length > 0) {
+      const primary = newPhotos[0];
       setExtracting(true);
       setExtractError(null);
       setExtractedDetails(null);
+      setEditableDescription("");
+      setEditableCategory("");
       try {
         const res = await fetch("/api/extract", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image_base64: base64 }),
+          body: JSON.stringify({ image_base64: primary.data }),
         });
         if (!res.ok) throw new Error("Failed to analyze image");
         const data = await res.json();
         setExtractedDetails(data);
-        // Auto-fill item name if empty
         if (!itemName && data.item_name && data.item_name !== "unknown") {
           setItemName(data.item_name);
         }
-      } catch (err) {
-        setExtractError("Could not extract details from image. You can still fill in details manually.");
+        setEditableDescription(data.item_description || "");
+        setEditableCategory(data.category && data.category !== "unknown" ? data.category : "");
+      } catch {
+        setExtractError("Could not extract details from image. You can still fill in the details manually.");
       } finally {
         setExtracting(false);
       }
-    };
-    reader.readAsDataURL(file);
+    }
+
+    // Reset the file input so the same file can be re-selected
+    e.target.value = "";
   }
 
-  function clearImage() {
-    setImagePreview(null);
-    setImageData(null);
-    setExtractedDetails(null);
-    setExtractError(null);
+  function removePhoto(id) {
+    setPhotos((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      // If the primary photo was removed, clear AI results
+      if (prev[0]?.id === id) {
+        setExtractedDetails(null);
+        setExtractError(null);
+        setEditableDescription("");
+        setEditableCategory("");
+      }
+      return next;
+    });
   }
 
   const handleUpload = useCallback(
     (e) => {
       e.preventDefault();
-      if (!imageData) return;
+      if (photos.length === 0) return;
       const newItem = {
         id: crypto.randomUUID(),
         itemName: itemName.trim(),
-        description: extractedDetails?.item_description || "",
-        category: extractedDetails?.category || "",
+        description: editableDescription || extractedDetails?.item_description || "",
+        category: editableCategory || extractedDetails?.category || "",
         itemType: extractedDetails?.item_type || "",
         brand: extractedDetails?.brand || "",
         model: extractedDetails?.model || "",
@@ -224,7 +272,8 @@ export default function StaffDashboard() {
         locationFound: locationFound.trim(),
         routeOrStation: routeOrStation.trim(),
         dateFound: dateFound || new Date().toISOString().split("T")[0],
-        image: imageData || null,
+        image: photos[0]?.url || null,      // primary photo for the card thumbnail
+        images: photos.map((p) => p.url),   // all photos
         status: "unclaimed",
         postedBy: user?.email || "staff",
         createdAt: new Date().toISOString(),
@@ -234,14 +283,15 @@ export default function StaffDashboard() {
       setLocationFound("");
       setRouteOrStation("");
       setDateFound("");
-      setImagePreview(null);
-      setImageData(null);
+      setPhotos([]);
       setExtractedDetails(null);
       setExtractError(null);
+      setEditableDescription("");
+      setEditableCategory("");
       setUploadSuccess(true);
       setTimeout(() => setUploadSuccess(false), 3000);
     },
-    [itemName, locationFound, routeOrStation, dateFound, imageData, user, extractedDetails],
+    [itemName, locationFound, routeOrStation, dateFound, photos, user, extractedDetails, editableDescription, editableCategory],
   );
 
   const handleClaim = useCallback((id) => {
@@ -279,7 +329,7 @@ export default function StaffDashboard() {
               className="inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted sm:text-sm"
             >
               <LogOut className="h-3.5 w-3.5" />
-              Sign out
+              <span className="hidden sm:inline">Sign out</span>
             </button>
           </div>
         </div>
@@ -315,6 +365,13 @@ export default function StaffDashboard() {
             label="Claimed"
             count={claimed.length}
             onClick={() => setTab("claimed")}
+          />
+          <TabButton
+            active={tab === "analytics"}
+            icon={BarChart3}
+            label="Analytics"
+            count={0}
+            onClick={() => setTab("analytics")}
           />
         </div>
       </nav>
@@ -479,52 +536,73 @@ export default function StaffDashboard() {
                 />
               </div>
 
-              {/* Image Upload */}
+              {/* ── Photo Upload ─────────────────────────────── */}
               <div className="space-y-2">
-                <label className="text-sm font-medium leading-none">
-                  Item Photo <span className="text-destructive">*</span>
-                </label>
-                {imagePreview ? (
-                  <div className="relative w-fit">
-                    <img
-                      src={imagePreview}
-                      alt="Item preview"
-                      className="h-40 w-40 rounded-xl border border-border object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={clearImage}
-                      className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm transition hover:opacity-90"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <label
-                    htmlFor="item-image"
-                    className="flex h-40 w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border bg-muted/30 transition hover:border-muted-foreground/40 hover:bg-muted/50"
-                  >
-                    <ImagePlus className="h-8 w-8 text-muted-foreground/50" />
-                    <span className="text-xs text-muted-foreground">
-                      Click to upload a photo
-                    </span>
-                    <input
-                      id="item-image"
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={handleImageChange}
-                    />
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium leading-none">
+                    Photos <span className="text-destructive">*</span>
                   </label>
-                )}
+                  <span className="text-xs text-muted-foreground">
+                    {photos.length}/{MAX_PHOTOS} · first photo used for AI
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  {/* Thumbnail grid */}
+                  {photos.map((photo, idx) => (
+                    <div key={photo.id} className="relative">
+                      <img
+                        src={photo.url}
+                        alt={`Photo ${idx + 1}`}
+                        className="h-20 w-20 rounded-xl border border-border object-cover"
+                      />
+                      {/* Primary badge */}
+                      {idx === 0 && (
+                        <span className="absolute bottom-1 left-1 rounded-md bg-foreground/80 px-1.5 py-0.5 text-[9px] font-semibold text-background">
+                          Primary
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removePhoto(photo.id)}
+                        className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm transition hover:opacity-90"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* Add more / initial upload button */}
+                  {photos.length < MAX_PHOTOS && (
+                    <label
+                      htmlFor="item-image"
+                      className={`flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border bg-muted/30 transition hover:border-muted-foreground/40 hover:bg-muted/50 ${
+                        photos.length === 0 ? "h-20 w-full" : "h-20 w-20"
+                      }`}
+                    >
+                      <ImagePlus className="h-5 w-5 text-muted-foreground/50" />
+                      <span className="text-[10px] text-muted-foreground">
+                        {photos.length === 0 ? "Click to upload photos" : "Add more"}
+                      </span>
+                      <input
+                        id="item-image"
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={handleImageChange}
+                      />
+                    </label>
+                  )}
+                </div>
               </div>
 
-              {/* AI extraction status */}
+              {/* ── AI Extraction Status ──────────────────────── */}
               {extracting && (
                 <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
                   <p className="text-sm text-blue-700">
-                    AI is analyzing the image and extracting item details...
+                    AI is analysing the primary photo…
                   </p>
                 </div>
               )}
@@ -535,46 +613,79 @@ export default function StaffDashboard() {
                 </div>
               )}
 
+              {/* ── AI Results — editable ─────────────────────── */}
               {extractedDetails && !extracting && (
-                <div className="space-y-3 rounded-xl border border-green-200 bg-green-50 p-4">
-                  <p className="text-sm font-medium text-green-800">
-                    AI Extracted Details
-                  </p>
-                  <div className="grid gap-2 text-xs text-green-700">
-                    {extractedDetails.category && extractedDetails.category !== "unknown" && (
-                      <p><strong>Category:</strong> {extractedDetails.category}</p>
-                    )}
-                    {extractedDetails.color && extractedDetails.color !== "unknown" && (
-                      <p><strong>Color:</strong> {extractedDetails.color}</p>
-                    )}
-                    {extractedDetails.brand && extractedDetails.brand !== "unknown" && (
-                      <p><strong>Brand:</strong> {extractedDetails.brand}</p>
-                    )}
-                    {extractedDetails.material && extractedDetails.material !== "unknown" && (
-                      <p><strong>Material:</strong> {extractedDetails.material}</p>
-                    )}
-                    {extractedDetails.item_condition && extractedDetails.item_condition !== "unknown" && (
-                      <p><strong>Condition:</strong> {extractedDetails.item_condition}</p>
-                    )}
-                    {extractedDetails.item_description && (
-                      <p><strong>Description:</strong> {extractedDetails.item_description}</p>
-                    )}
+                <div className="space-y-4 rounded-xl border border-border bg-muted/30 p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                      AI Extracted Details
+                    </p>
+                    <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">
+                      Review &amp; edit if needed
+                    </span>
                   </div>
-                  <p className="text-[11px] text-green-600">
-                    These details will be saved when you click Upload.
-                  </p>
+
+                  {/* Editable category */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Category
+                    </label>
+                    <select
+                      value={editableCategory}
+                      onChange={(e) => setEditableCategory(e.target.value)}
+                      className={field}
+                    >
+                      <option value="">— Select category —</option>
+                      {CATEGORIES.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Editable description */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Description
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={editableDescription}
+                      onChange={(e) => setEditableDescription(e.target.value)}
+                      className="flex w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      placeholder="Describe the item…"
+                    />
+                  </div>
+
+                  {/* Read-only detail chips */}
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { label: "Color", value: extractedDetails.color },
+                      { label: "Brand", value: extractedDetails.brand },
+                      { label: "Material", value: extractedDetails.material },
+                      { label: "Condition", value: extractedDetails.item_condition },
+                    ]
+                      .filter(({ value }) => value && value !== "unknown")
+                      .map(({ label, value }) => (
+                        <span
+                          key={label}
+                          className="rounded-full border border-border bg-background px-2.5 py-1 text-[11px] text-muted-foreground"
+                        >
+                          <span className="font-medium text-foreground">{label}:</span> {value}
+                        </span>
+                      ))}
+                  </div>
                 </div>
               )}
 
-              {!imageData && (
+              {photos.length === 0 && (
                 <p className="text-sm text-destructive">
-                  An item photo is required. Please upload an image to continue.
+                  At least one photo is required.
                 </p>
               )}
 
               <button
                 type="submit"
-                disabled={!imageData || extracting}
+                disabled={photos.length === 0 || extracting}
                 className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Upload className="h-4 w-4" />
@@ -641,6 +752,9 @@ export default function StaffDashboard() {
             )}
           </div>
         )}
+
+        {/* Analytics */}
+        {tab === "analytics" && <AnalyticsPanel />}
       </main>
     </div>
   );
