@@ -21,6 +21,13 @@ spec:
           ports:
             - containerPort: 8090
               name: http
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
           env:
             - name: ENVIRONMENT
               valueFrom:
@@ -30,7 +37,7 @@ spec:
             - name: GROQ_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: chat-agent-secret
+                  name: groq-api-key
                   key: GROQ_API_KEY
           readinessProbe:
             httpGet:
