@@ -14,3 +14,5 @@ DROP TABLE IF EXISTS passengers;
 DROP TYPE IF EXISTS lost_report_status;
 DROP TYPE IF EXISTS claim_status;
 DROP TYPE IF EXISTS found_item_status;
+
+DROP EXTENSION IF EXISTS pgcrypto;
