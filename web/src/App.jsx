@@ -38,7 +38,14 @@ export default function App() {
             element={<Navigate to="/staff/auth?mode=signup" replace />}
           />
           <Route path="/passenger/sign-in" element={<PassengerSignInPage />} />
-          <Route path="/passenger/chat" element={<PassengerChatPage />} />
+          <Route
+            path="/passenger/chat"
+            element={
+              <PassengerRoute>
+                <PassengerChatPage />
+              </PassengerRoute>
+            }
+          />
           <Route
             path="/auth"
             element={<Navigate to="/" replace />}
