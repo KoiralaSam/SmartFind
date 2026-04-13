@@ -3,8 +3,11 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
+	"time"
 
 	grpcclients "smartfind/services/api-gateway/grpc_clients"
+	"smartfind/shared/env"
 
 	pb "smartfind/shared/proto/passenger"
 
@@ -76,7 +79,28 @@ func passengerLoginHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	setPassengerSessionCookie(w, resp.GetSessionToken())
 	writeJSON(w, http.StatusOK, dto)
+}
+
+func setPassengerSessionCookie(w http.ResponseWriter, token string) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return
+	}
+	maxAge := env.GetInt("JWT_TTL_SECONDS", 0)
+	if maxAge <= 0 {
+		maxAge = int((7 * 24 * time.Hour) / time.Second)
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     "passenger_session",
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Secure:   env.GetBool("COOKIE_SECURE", false),
+		MaxAge:   maxAge,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, statusCode int, v any) {

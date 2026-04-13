@@ -51,6 +51,20 @@ local_resource(
   cmd="""
 set -eu
 
+export PATH="$PATH:/usr/local/bin:/opt/homebrew/bin"
+command -v go >/dev/null 2>&1 || {
+  echo "go not found in PATH (required: https://go.dev/dl/)"
+  exit 1
+}
+
+if [ -z "${DATABASE_URL:-}" ]; then
+  DATABASE_URL="$(awk -F': ' '/^[[:space:]]*DATABASE_URL:/ {print $2}' infra/development/k8s/secrets.yaml | tr -d '\"')"
+fi
+if [ -z "${DATABASE_URL:-}" ]; then
+  echo "DATABASE_URL is not set and could not be read from infra/development/k8s/secrets.yaml."
+  exit 1
+fi
+
 echo "Waiting for postgres to be ready..."
 until kubectl exec deploy/postgres -- pg_isready -U smartfind -d smartfind > /dev/null 2>&1; do
   echo "Postgres not ready yet, retrying in 2s..."
@@ -58,13 +72,14 @@ until kubectl exec deploy/postgres -- pg_isready -U smartfind -d smartfind > /de
 done
 
 echo "Postgres is ready. Running migrations..."
-migrate -path ./migrations \\
-  -database "postgres://smartfind:smartfind@localhost:5432/smartfind?sslmode=disable" \\
+go run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate \\
+  -path ./migrations \\
+  -database "$DATABASE_URL" \\
   up
 
 echo "Migrations completed."
 """,
-  deps=["./Makefile", "./migrations", "./infra/development/k8s/secrets.yaml"],
+  deps=["./Makefile", "./migrations", "./go.mod", "./go.sum", "./infra/development/k8s/secrets.yaml"],
   resource_deps=["postgres"],
   labels="infrastructure",
 )

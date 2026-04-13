@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { decodeGoogleCredential } from "../auth/decodeGoogleCredential";
 import { isValidInvitationCode } from "../auth/invitation";
-import {
-  findStaffByEmail,
-  registerStaffAccount,
-} from "../auth/staffAccounts";
+import { findStaffByEmail, registerStaffAccount } from "../auth/staffAccounts";
 import { AuthContext } from "./auth-context";
 
 const STORAGE_KEY = "smartfind-auth";
@@ -51,7 +47,10 @@ export function AuthProvider({ children }) {
       }
       const normalized = email.trim().toLowerCase();
       if (findStaffByEmail(normalized)) {
-        return { ok: false, error: "An account with this email already exists." };
+        return {
+          ok: false,
+          error: "An account with this email already exists.",
+        };
       }
       const displayName =
         (name && name.trim()) || normalized.split("@")[0] || "Staff";
@@ -74,23 +73,44 @@ export function AuthProvider({ children }) {
   );
 
   const loginPassengerGoogle = useCallback(async (credential) => {
-    const payload = decodeGoogleCredential(credential);
-    if (!payload?.email) {
+    if (!credential || typeof credential !== "string") {
       return {
         ok: false,
-        error: "Could not read Google account. Please try again.",
+        error: "Google credential is missing. Please try again.",
       };
     }
+    let payload;
+    try {
+      const res = await fetch("http://localhost:8081/passenger/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ id_token: credential }),
+      });
+      payload = await res.json();
+      if (!res.ok) {
+        return {
+          ok: false,
+          error: payload?.error || "Passenger login failed. Please try again.",
+        };
+      }
+    } catch {
+      return {
+        ok: false,
+        error: "Could not reach login service. Please try again.",
+      };
+    }
+
+    const passenger = payload?.passenger;
+    if (!passenger?.email) {
+      return { ok: false, error: "Passenger profile was missing in response." };
+    }
     const next = {
-      email: payload.email,
-      name:
-        payload.name ||
-        payload.given_name ||
-        payload.email.split("@")[0] ||
-        "Passenger",
+      email: passenger.email,
+      name: passenger.full_name || passenger.email.split("@")[0] || "Passenger",
       role: "passenger",
       authProvider: "google",
-      picture: payload.picture || undefined,
+      picture: passenger.avatar_url || undefined,
     };
     setUser(next);
     persistUser(next);
@@ -113,7 +133,5 @@ export function AuthProvider({ children }) {
     [user, loginStaff, signupStaff, loginPassengerGoogle, logout],
   );
 
-  return (
-    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
