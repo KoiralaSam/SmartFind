@@ -1,0 +1,425 @@
+import json
+import os
+import sys
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, Optional, Tuple
+
+import grpc
+from google.protobuf.json_format import MessageToDict
+from google.protobuf.timestamp_pb2 import Timestamp
+
+def _find_proto_py_passenger_dir() -> Path:
+    env_override = (os.environ.get("PROTO_PY_PASSENGER_DIR") or "").strip()
+    if env_override:
+        p = Path(env_override).expanduser().resolve()
+        if (p / "passenger_pb2.py").exists() and (p / "passenger_pb2_grpc.py").exists():
+            return p
+
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parent / "shared" / "proto_py" / "passenger",
+        Path.cwd() / "shared" / "proto_py" / "passenger",
+    ]
+
+    for base in here.parents:
+        candidates.append(base / "shared" / "proto_py" / "passenger")
+
+    for c in candidates:
+        if (c / "passenger_pb2.py").exists() and (c / "passenger_pb2_grpc.py").exists():
+            return c.resolve()
+
+    raise RuntimeError(
+        "Could not locate generated gRPC python files. "
+        "Expected shared/proto_py/passenger/passenger_pb2.py to exist. "
+        "Set PROTO_PY_PASSENGER_DIR to the folder containing passenger_pb2.py."
+    )
+
+
+_PROTO_PY_PASSENGER_DIR = _find_proto_py_passenger_dir()
+
+# The generated modules use absolute imports like `import passenger_pb2`,
+# so we must ensure the generated folder is on sys.path.
+if str(_PROTO_PY_PASSENGER_DIR) not in sys.path:
+    sys.path.insert(0, str(_PROTO_PY_PASSENGER_DIR))
+
+import passenger_pb2  # noqa: E402
+import passenger_pb2_grpc  # noqa: E402
+
+
+DEFAULT_PASSENGER_SERVICE_ADDRESS = "passenger-service:50051"
+
+
+class ChatAction:
+    CREATE_LOST_REPORT = "create_lost_report"
+    LIST_LOST_REPORTS = "list_lost_reports"
+    DELETE_LOST_REPORT = "delete_lost_report"
+    SEARCH_FOUND_ITEM_MATCHES = "search_found_item_matches"
+    FILE_CLAIM = "file_claim"
+    NONE = "none"
+
+
+@dataclass(frozen=True)
+class ChatDispatchResult:
+    action: str
+    ok: bool
+    data: Dict[str, Any]
+    error: Optional[str] = None
+
+
+def _parse_json_object(text: str) -> Optional[Dict[str, Any]]:
+    t = (text or "").strip()
+    if not (t.startswith("{") and t.endswith("}")):
+        return None
+    try:
+        obj = json.loads(t)
+    except json.JSONDecodeError:
+        return None
+    if isinstance(obj, dict):
+        return obj
+    return None
+
+
+def _resolve_relative_date(text: str) -> Optional[datetime.date.__class__]:
+    """Handle natural-language relative dates the LLM commonly produces."""
+    from datetime import date, timedelta
+
+    lower = text.strip().lower()
+    today = date.today()
+    relative_map = {
+        "today": today,
+        "yesterday": today - timedelta(days=1),
+        "day before yesterday": today - timedelta(days=2),
+    }
+    if lower in relative_map:
+        return relative_map[lower]
+    return None
+
+
+def _parse_date_time(date_str: str, time_str: str) -> datetime:
+    ds = (date_str or "").strip()
+    ts = (time_str or "").strip()
+
+    if not ds or ds.lower() == "unknown":
+        raise ValueError("date_lost is required (got empty/unknown)")
+    if not ts or ts.lower() == "unknown":
+        raise ValueError("time_lost is required (got empty/unknown)")
+
+    date_formats = ("%Y-%m-%d", "%m/%d/%Y", "%d/%m/%Y", "%B %d, %Y", "%b %d, %Y")
+    time_formats = ("%H:%M", "%H:%M:%S", "%I:%M %p", "%I:%M%p", "%I %p", "%I%p")
+
+    parsed_date = _resolve_relative_date(ds)
+    if parsed_date is None:
+        for fmt in date_formats:
+            try:
+                parsed_date = datetime.strptime(ds, fmt).date()
+                break
+            except ValueError:
+                continue
+    if parsed_date is None:
+        try:
+            parsed_date = datetime.fromisoformat(ds).date()
+        except ValueError:
+            raise ValueError(f"Could not parse date_lost: '{ds}'")
+
+    parsed_time = None
+    normalized_ts = ts.upper().replace(".", "").strip()
+    for fmt in time_formats:
+        try:
+            parsed_time = datetime.strptime(normalized_ts, fmt).time()
+            break
+        except ValueError:
+            continue
+    if parsed_time is None:
+        try:
+            parsed_time = datetime.fromisoformat(ts).time()
+        except ValueError:
+            raise ValueError(f"Could not parse time_lost: '{ts}'")
+
+    combined = datetime.combine(parsed_date, parsed_time)
+    return combined.replace(tzinfo=timezone.utc)
+
+
+def _to_timestamp(dt: datetime) -> Timestamp:
+    ts = Timestamp()
+    ts.FromDatetime(dt)
+    return ts
+
+
+def _intake_to_create_lost_report_request(
+    *, passenger_id: str, intake: Dict[str, Any]
+) -> passenger_pb2.CreateLostReportRequest:
+    item_name = (intake.get("item_name") or "").strip()
+    if not item_name or item_name.lower() == "unknown":
+        raise ValueError("item_name is required (got empty/unknown)")
+
+    color = (intake.get("color") or "unknown").strip() or "unknown"
+    brand = (intake.get("brand") or "unknown").strip() or "unknown"
+    description = (intake.get("description") or "unknown").strip() or "unknown"
+    route_from = (intake.get("route_from") or "unknown").strip() or "unknown"
+    route_to = (intake.get("route_to") or "unknown").strip() or "unknown"
+    date_lost = (intake.get("date_lost") or "").strip()
+    time_lost = (intake.get("time_lost") or "").strip()
+
+    dt = _parse_date_time(date_lost, time_lost)
+
+    return passenger_pb2.CreateLostReportRequest(
+        passenger_id=passenger_id,
+        item_name=item_name,
+        item_description=description,
+        item_type=(intake.get("item_type") or "unknown").strip() or "unknown",
+        brand=brand,
+        model=(intake.get("model") or "unknown").strip() or "unknown",
+        color=color,
+        material=(intake.get("material") or "unknown").strip() or "unknown",
+        item_condition=(intake.get("item_condition") or "unknown").strip() or "unknown",
+        category=(intake.get("category") or "unknown").strip() or "unknown",
+        location_lost=(intake.get("location_lost") or "unknown").strip() or "unknown",
+        route_or_station=(intake.get("route_or_station") or f"{route_from} -> {route_to}").strip()
+        or "unknown",
+        route_id=(intake.get("route_id") or "").strip(),
+        date_lost=_to_timestamp(dt),
+    )
+
+
+def _infer_action(payload: Dict[str, Any]) -> str:
+    action = (payload.get("action") or payload.get("intent") or "").strip().lower()
+    normalized = action.replace("-", "_")
+    if normalized in (
+        "createlostreport",
+        "create_lost_report",
+        "create_lost_report_request",
+    ):
+        return ChatAction.CREATE_LOST_REPORT
+    if normalized in ("listlostreports", "list_lost_reports"):
+        return ChatAction.LIST_LOST_REPORTS
+    if normalized in ("deletelostreport", "delete_lost_report"):
+        return ChatAction.DELETE_LOST_REPORT
+    if normalized in ("searchfounditemmatches", "search_found_item_matches"):
+        return ChatAction.SEARCH_FOUND_ITEM_MATCHES
+    if normalized in ("fileclaim", "file_claim"):
+        return ChatAction.FILE_CLAIM
+
+    # Back-compat: current chat flow outputs the intake JSON directly.
+    intake_keys = {
+        "item_name",
+        "color",
+        "brand",
+        "description",
+        "route_from",
+        "route_to",
+        "date_lost",
+        "time_lost",
+    }
+    if any(k in payload for k in intake_keys):
+        return ChatAction.CREATE_LOST_REPORT
+
+    return ChatAction.NONE
+
+
+class PassengerGrpcHandler:
+    def __init__(
+        self,
+        *,
+        address: Optional[str] = None,
+        timeout_seconds: float = 10.0,
+    ) -> None:
+        self._address = (
+            address
+            or os.environ.get("PASSENGER_SERVICE_ADDRESS")
+            or DEFAULT_PASSENGER_SERVICE_ADDRESS
+        )
+        self._timeout_seconds = timeout_seconds
+        self._channel: Optional[grpc.aio.Channel] = None
+        self._stub: Optional[passenger_pb2_grpc.PassengerServiceStub] = None
+
+    async def _get_stub(self) -> passenger_pb2_grpc.PassengerServiceStub:
+        if self._stub is not None:
+            return self._stub
+        self._channel = grpc.aio.insecure_channel(self._address)
+        try:
+            await self._channel.channel_ready()
+        except Exception:
+            await self._channel.close()
+            self._channel = None
+            raise
+        self._stub = passenger_pb2_grpc.PassengerServiceStub(self._channel)
+        return self._stub
+
+    def _metadata(self, forwarded_token: Optional[str]) -> Tuple[Tuple[str, str], ...]:
+        md: list[Tuple[str, str]] = []
+        internal = (os.environ.get("INTERNAL_SERVICE_SECRET") or "").strip()
+        if internal:
+            md.append(("x-internal-token", internal))
+        if forwarded_token:
+            md.append(("x-forwarded-token", forwarded_token))
+        return tuple(md)
+
+    async def close(self) -> None:
+        if self._channel is not None:
+            await self._channel.close()
+        self._channel = None
+        self._stub = None
+
+    async def create_lost_report(
+        self, *, passenger_id: str, payload: Dict[str, Any], forwarded_token: Optional[str] = None
+    ) -> passenger_pb2.LostReport:
+        stub = await self._get_stub()
+        data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        req = _intake_to_create_lost_report_request(passenger_id=passenger_id, intake=data)
+        return await stub.CreateLostReport(
+            req, timeout=self._timeout_seconds, metadata=self._metadata(forwarded_token)
+        )
+
+    async def list_lost_reports(
+        self, *, passenger_id: str, status: str = "", forwarded_token: Optional[str] = None
+    ) -> passenger_pb2.ListLostReportsResponse:
+        stub = await self._get_stub()
+        req = passenger_pb2.ListLostReportsRequest(passenger_id=passenger_id, status=status)
+        return await stub.ListLostReports(
+            req, timeout=self._timeout_seconds, metadata=self._metadata(forwarded_token)
+        )
+
+    async def delete_lost_report(
+        self, *, passenger_id: str, lost_report_id: str, forwarded_token: Optional[str] = None
+    ) -> None:
+        stub = await self._get_stub()
+        req = passenger_pb2.DeleteLostReportRequest(
+            passenger_id=passenger_id, lost_report_id=lost_report_id
+        )
+        await stub.DeleteLostReport(
+            req, timeout=self._timeout_seconds, metadata=self._metadata(forwarded_token)
+        )
+
+    async def search_found_item_matches(
+        self,
+        *,
+        passenger_id: str,
+        lost_report_id: str,
+        limit: int = 10,
+        forwarded_token: Optional[str] = None,
+    ) -> passenger_pb2.SearchFoundItemMatchesResponse:
+        stub = await self._get_stub()
+        req = passenger_pb2.SearchFoundItemMatchesRequest(
+            passenger_id=passenger_id,
+            lost_report_id=lost_report_id,
+            limit=int(limit),
+        )
+        return await stub.SearchFoundItemMatches(
+            req, timeout=self._timeout_seconds, metadata=self._metadata(forwarded_token)
+        )
+
+    async def file_claim(
+        self,
+        *,
+        passenger_id: str,
+        found_item_id: str,
+        lost_report_id: str,
+        message: str,
+        forwarded_token: Optional[str] = None,
+    ) -> passenger_pb2.ItemClaim:
+        stub = await self._get_stub()
+        req = passenger_pb2.FileClaimRequest(
+            passenger_id=passenger_id,
+            found_item_id=found_item_id,
+            lost_report_id=lost_report_id,
+            message=message,
+        )
+        return await stub.FileClaim(
+            req, timeout=self._timeout_seconds, metadata=self._metadata(forwarded_token)
+        )
+
+    async def dispatch_from_chat_reply(
+        self, *, passenger_id: str, chat_reply_text: str, forwarded_token: Optional[str] = None
+    ) -> ChatDispatchResult:
+        payload = _parse_json_object(chat_reply_text)
+        if payload is None:
+            return ChatDispatchResult(action=ChatAction.NONE, ok=True, data={})
+
+        action = _infer_action(payload)
+
+        try:
+            if action == ChatAction.CREATE_LOST_REPORT:
+                report = await self.create_lost_report(
+                    passenger_id=passenger_id, payload=payload, forwarded_token=forwarded_token
+                )
+                return ChatDispatchResult(
+                    action=action,
+                    ok=True,
+                    data=MessageToDict(report, preserving_proto_field_name=True),
+                )
+
+            if action == ChatAction.LIST_LOST_REPORTS:
+                data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+                status = (data.get("status") or "").strip()
+                resp = await self.list_lost_reports(
+                    passenger_id=passenger_id, status=status, forwarded_token=forwarded_token
+                )
+                return ChatDispatchResult(
+                    action=action,
+                    ok=True,
+                    data=MessageToDict(resp, preserving_proto_field_name=True),
+                )
+
+            if action == ChatAction.DELETE_LOST_REPORT:
+                data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+                lost_report_id = (data.get("lost_report_id") or data.get("id") or "").strip()
+                if not lost_report_id:
+                    raise ValueError("missing lost_report_id for delete_lost_report")
+                await self.delete_lost_report(
+                    passenger_id=passenger_id,
+                    lost_report_id=lost_report_id,
+                    forwarded_token=forwarded_token,
+                )
+                return ChatDispatchResult(action=action, ok=True, data={})
+
+            if action == ChatAction.SEARCH_FOUND_ITEM_MATCHES:
+                data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+                lost_report_id = (data.get("lost_report_id") or "").strip()
+                if not lost_report_id:
+                    raise ValueError("missing lost_report_id for search_found_item_matches")
+                limit = int(data.get("limit") or 10)
+                resp = await self.search_found_item_matches(
+                    passenger_id=passenger_id,
+                    lost_report_id=lost_report_id,
+                    limit=limit,
+                    forwarded_token=forwarded_token,
+                )
+                return ChatDispatchResult(
+                    action=action,
+                    ok=True,
+                    data=MessageToDict(resp, preserving_proto_field_name=True),
+                )
+
+            if action == ChatAction.FILE_CLAIM:
+                data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+                found_item_id = (data.get("found_item_id") or "").strip()
+                lost_report_id = (data.get("lost_report_id") or "").strip()
+                message = (data.get("message") or "").strip()
+                if not found_item_id or not lost_report_id:
+                    raise ValueError("missing found_item_id or lost_report_id for file_claim")
+                claim = await self.file_claim(
+                    passenger_id=passenger_id,
+                    found_item_id=found_item_id,
+                    lost_report_id=lost_report_id,
+                    message=message,
+                    forwarded_token=forwarded_token,
+                )
+                return ChatDispatchResult(
+                    action=action,
+                    ok=True,
+                    data=MessageToDict(claim, preserving_proto_field_name=True),
+                )
+
+            return ChatDispatchResult(action=ChatAction.NONE, ok=True, data={})
+
+        except grpc.aio.AioRpcError as e:
+            return ChatDispatchResult(
+                action=action,
+                ok=False,
+                data={},
+                error=f"grpc error: code={e.code().name} message={e.details()}",
+            )
+        except Exception as e:
+            return ChatDispatchResult(action=action, ok=False, data={}, error=str(e))

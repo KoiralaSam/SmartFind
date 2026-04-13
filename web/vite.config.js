@@ -23,7 +23,7 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api/, ""),
         changeOrigin: true,
       },
-      "/passenger": {
+      "/passenger/login": {
         target: process.env.VITE_API_BASE_URL || "http://localhost:8081",
         changeOrigin: true,
       },

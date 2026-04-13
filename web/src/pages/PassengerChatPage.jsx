@@ -1,10 +1,49 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Bot, LogOut, Send, Sparkles, UserRound } from "lucide-react";
+import { useAuth } from "../context/useAuth";
 
 const CHAT_BASE_URL = "/api";
 
+function formatBackendResult(action, data) {
+  if (!data) return "Done.";
+
+  switch (action) {
+    case "create_lost_report":
+      return `✅ Your lost item report has been filed!\n\nReport ID: ${data.id || "—"}\nItem: ${data.item_name || "—"}\nStatus: ${data.status || "open"}`;
+
+    case "list_lost_reports": {
+      const reports = data.reports || [];
+      if (reports.length === 0) return "You have no lost item reports on file.";
+      const lines = reports.map(
+        (r, i) => `${i + 1}. ${r.item_name || "Unnamed"} — ${r.status || "open"} (ID: ${r.id})`,
+      );
+      return `Here are your lost item reports:\n\n${lines.join("\n")}`;
+    }
+
+    case "delete_lost_report":
+      return "✅ The lost item report has been deleted.";
+
+    case "search_found_item_matches": {
+      const matches = data.matches || [];
+      if (matches.length === 0) return "No matching found items yet. We'll keep looking!";
+      const lines = matches.map(
+        (m, i) =>
+          `${i + 1}. ${m.item_name || "Unnamed"} — ${m.color || ""} ${m.brand || ""} (score: ${(m.similarity_score ?? 0).toFixed(2)}, ID: ${m.found_item_id})`,
+      );
+      return `We found potential matches:\n\n${lines.join("\n")}`;
+    }
+
+    case "file_claim":
+      return `✅ Your claim has been filed!\n\nClaim ID: ${data.id || "—"}\nStatus: ${data.status || "pending"}`;
+
+    default:
+      return "Done.";
+  }
+}
+
 export default function PassengerChatPage() {
+  const { user } = useAuth();
   const [messages, setMessages] = useState(() => [
     {
       id: "welcome",
@@ -44,7 +83,11 @@ export default function PassengerChatPage() {
         const response = await fetch(`${CHAT_BASE_URL}/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: conversationMessages }),
+          body: JSON.stringify({
+            messages: conversationMessages,
+            passenger_id: user?.id || null,
+            forwarded_token: user?.sessionToken || null,
+          }),
         });
 
         if (!response.ok) {
@@ -54,9 +97,19 @@ export default function PassengerChatPage() {
         }
 
         const data = await response.json();
+
+        let replyContent = data.reply;
+        if (data.action && data.action !== "none") {
+          if (data.grpc_ok) {
+            replyContent = formatBackendResult(data.action, data.grpc_data);
+          } else {
+            replyContent += `\n\n⚠️ Backend error: ${data.grpc_error || "Unknown error"}`;
+          }
+        }
+
         setMessages((m) => [
           ...m,
-          { id: `a-${Date.now()}`, role: "assistant", content: data.reply },
+          { id: `a-${Date.now()}`, role: "assistant", content: replyContent },
         ]);
       } catch (error) {
         console.error("Chat error:", error);
