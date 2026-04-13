@@ -9,6 +9,12 @@ docker_build(
 )
 
 docker_build(
+  "smartfind/api-gateway",
+  ".",
+  dockerfile="./infra/development/docker/api-gateway.Dockerfile",
+)
+
+docker_build(
   "smartfind/chat-agent",
   ".",
   dockerfile="./infra/development/docker/chat-agent.Dockerfile",
@@ -33,6 +39,7 @@ docker_build(
 )
 
 k8s_yaml("./infra/development/k8s/web-deployment.yaml")
+k8s_yaml("./infra/development/k8s/api-gateway-deployment.yaml")
 k8s_yaml("./infra/development/k8s/chat-agent-deployment.yaml")
 k8s_yaml("./infra/development/k8s/detail-extracter-agent-deployment.yaml")
 k8s_yaml("./infra/development/k8s/predictive-analytics-agent-deployment.yaml")
@@ -63,6 +70,7 @@ echo "Migrations completed."
 )
 
 k8s_resource("web", port_forwards=5173, labels="frontend", resource_deps=["db-migrate"])
+k8s_resource("api-gateway", port_forwards=8081, labels="services", resource_deps=["passenger-service"])
 k8s_resource("chat-agent", port_forwards=8090, labels="services", resource_deps=["db-migrate"])
 k8s_resource("detail-extracter-agent", port_forwards=8091, labels="services", resource_deps=["db-migrate"])
 k8s_resource("predictive-analytics-agent", port_forwards=8092, labels="services", resource_deps=["db-migrate"])
