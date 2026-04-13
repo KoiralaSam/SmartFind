@@ -55,10 +55,10 @@ migrate-create:
 		echo "usage: make migrate-create name=<migration_name>"; \
 		exit 1; \
 	fi
-	migrate create -ext sql -dir migrations -seq $(name)
+	$(GO) run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate create -ext sql -dir migrations -seq $(name)
 
 migrate-up:
-	migrate -path migrations -database "$(DB_URL)" up
+	$(GO) run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate -path migrations -database "$(DB_URL)" up
 
 migrate-down:
-	migrate -path migrations -database "$(DB_URL)" down 1
+	$(GO) run -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate -path migrations -database "$(DB_URL)" down 1
