@@ -106,11 +106,13 @@ export function AuthProvider({ children }) {
       return { ok: false, error: "Passenger profile was missing in response." };
     }
     const next = {
+      id: passenger.id,
       email: passenger.email,
       name: passenger.full_name || passenger.email.split("@")[0] || "Passenger",
       role: "passenger",
       authProvider: "google",
       picture: passenger.avatar_url || undefined,
+      sessionToken: payload.session_token || undefined,
     };
     setUser(next);
     persistUser(next);

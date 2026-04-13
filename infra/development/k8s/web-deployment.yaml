@@ -32,7 +32,7 @@ spec:
             - name: NODE_ENV
               value: "development"
             - name: VITE_API_BASE_URL
-              value: "http://smartfind-api:8081"
+              value: "http://api-gateway:8081"
             - name: CHAT_AGENT_URL
               value: "http://chat-agent:8090"
             - name: DETAIL_EXTRACTER_URL

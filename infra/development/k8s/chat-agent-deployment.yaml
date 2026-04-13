@@ -39,6 +39,11 @@ spec:
                 secretKeyRef:
                   name: groq-api-key
                   key: GROQ_API_KEY
+            - name: PASSENGER_SERVICE_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: PASSENGER_SERVICE_ADDRESS
           readinessProbe:
             httpGet:
               path: /health

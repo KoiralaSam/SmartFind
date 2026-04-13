@@ -15,6 +15,9 @@ RUN /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 
 COPY services/chat-agent ./
 
+# Copy generated gRPC python files (shared/proto_py) into the image
+COPY shared/proto_py ./shared/proto_py
+
 EXPOSE 8090
 
 CMD ["/app/venv/bin/python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8090"]
