@@ -3,12 +3,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import os
 import io
-import base64
 import json
+import base64
 import logging
+import requests
 from dotenv import load_dotenv, find_dotenv
-from groq import Groq
 from PIL import Image
+from google.oauth2 import service_account
+from google.auth.transport.requests import Request as GoogleAuthRequest
 
 load_dotenv(find_dotenv())
 
@@ -24,20 +26,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
+VISION_API_URL = "https://vision.googleapis.com/v1/images:annotate"
 
-# ────────────────────────────────────────────────────────────────
-#  IMAGE PROCESSING
-# ────────────────────────────────────────────────────────────────
+# Cached credentials — reused across requests, refreshed only when expired
+_credentials = None
 
-MAX_IMAGE_DIMENSION = 1024  # px — keeps base64 well under Groq limits
+
+def get_vision_credentials() -> service_account.Credentials:
+    """Return a valid (possibly cached) service account credential with the Vision scope."""
+    global _credentials
+    if _credentials is None:
+        info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
+        _credentials = service_account.Credentials.from_service_account_info(
+            info,
+            scopes=["https://www.googleapis.com/auth/cloud-vision"],
+        )
+    if not _credentials.valid:
+        _credentials.refresh(GoogleAuthRequest())
+    return _credentials
+
+
+# Image processing
+
+MAX_IMAGE_DIMENSION = 1024  # px — keeps base64 well under Vision API limits
 
 
 def resize_image_base64(data_uri: str) -> str:
     """Resize a base64 data-URI image so its longest side is ≤ MAX_IMAGE_DIMENSION.
     Returns a data URI with the (possibly resized) JPEG image."""
 
-    # Strip the data URI header to get raw base64
     if "," in data_uri:
         header, b64data = data_uri.split(",", 1)
     else:
@@ -46,11 +64,9 @@ def resize_image_base64(data_uri: str) -> str:
     raw_bytes = base64.b64decode(b64data)
     img = Image.open(io.BytesIO(raw_bytes))
 
-    # Convert RGBA/P to RGB for JPEG
     if img.mode in ("RGBA", "P"):
         img = img.convert("RGB")
 
-    # Resize if needed
     w, h = img.size
     if max(w, h) > MAX_IMAGE_DIMENSION:
         scale = MAX_IMAGE_DIMENSION / max(w, h)
@@ -58,7 +74,6 @@ def resize_image_base64(data_uri: str) -> str:
         img = img.resize(new_size, Image.LANCZOS)
         logger.info(f"Resized image from {w}x{h} to {new_size[0]}x{new_size[1]}")
 
-    # Re-encode as JPEG
     buf = io.BytesIO()
     img.save(buf, format="JPEG", quality=85)
     resized_b64 = base64.b64encode(buf.getvalue()).decode()
@@ -66,334 +81,271 @@ def resize_image_base64(data_uri: str) -> str:
     return f"data:image/jpeg;base64,{resized_b64}"
 
 
-# ────────────────────────────────────────────────────────────────
-#  TOOLS — each tool is a function the agent can invoke
-# ────────────────────────────────────────────────────────────────
+# Cloud Vision API
 
-TOOL_DEFINITIONS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "analyze_image",
-            "description": (
-                "Perform initial visual analysis of the uploaded item image. "
-                "Returns a free-form text description of everything visible."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "focus": {
-                        "type": "string",
-                        "description": "What to focus on: 'general' for overall look, 'branding' for logos/text, 'condition' for wear/damage",
-                    }
-                },
-                "required": ["focus"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "categorize_item",
-            "description": (
-                "Based on the image analysis, determine the item category and type. "
-                "Choose from standard transit lost & found categories."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "visual_description": {
-                        "type": "string",
-                        "description": "The visual description from the image analysis step",
-                    }
-                },
-                "required": ["visual_description"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "extract_structured_details",
-            "description": (
-                "Compile all gathered information into a final structured JSON object "
-                "with item_name, item_type, category, brand, model, color, material, "
-                "item_condition, and item_description."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "visual_description": {
-                        "type": "string",
-                        "description": "Full visual description from analysis",
-                    },
-                    "category": {
-                        "type": "string",
-                        "description": "Category determined by categorize_item",
-                    },
-                    "item_type": {
-                        "type": "string",
-                        "description": "Item type determined by categorize_item",
-                    },
-                },
-                "required": ["visual_description", "category", "item_type"],
-            },
-        },
-    },
-]
+def call_vision_api(image_base64: str) -> dict:
+    """Call Google Cloud Vision API using service account bearer token auth."""
+    if "," in image_base64:
+        _, b64data = image_base64.split(",", 1)
+    else:
+        b64data = image_base64
 
+    credentials = get_vision_credentials()
 
-def tool_analyze_image(image_base64: str, focus: str) -> str:
-    """Vision model call — looks at the image and returns a text description."""
-    focus_prompts = {
-        "general": "Describe everything you see: the item type, color, size, shape, any visible features.",
-        "branding": "Focus on any brand names, logos, text, labels, model numbers, or serial numbers visible on the item.",
-        "condition": "Describe the condition of the item: is it new, worn, damaged? Any scratches, stains, tears, or missing parts?",
-    }
-    prompt = focus_prompts.get(focus, focus_prompts["general"])
-
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": image_base64}},
+    payload = {
+        "requests": [{
+            "image": {"content": b64data},
+            "features": [
+                {"type": "LABEL_DETECTION", "maxResults": 15},
+                {"type": "LOGO_DETECTION", "maxResults": 5},
+                {"type": "TEXT_DETECTION", "maxResults": 1},
+                {"type": "IMAGE_PROPERTIES"},
+                {"type": "OBJECT_LOCALIZATION", "maxResults": 10},
             ],
-        },
-    ]
+        }]
+    }
 
-    try:
-        completion = client.chat.completions.create(
-            model="meta-llama/llama-4-scout-17b-16e-instruct",
-            messages=messages,
-            temperature=0.2,
-            max_tokens=512,
-        )
-        return completion.choices[0].message.content.strip()
-    except Exception as e:
-        logger.error(f"Groq vision API error: {e}")
-        raise
+    response = requests.post(
+        VISION_API_URL,
+        headers={"Authorization": f"Bearer {credentials.token}"},
+        json=payload,
+        timeout=30,
+    )
+    if not response.ok:
+        logger.error(f"Vision API {response.status_code}: {response.text}")
+    response.raise_for_status()
+    return response.json()["responses"][0]
 
 
-CATEGORIES = [
-    "Bags & Luggage", "Electronics", "Clothing & Accessories",
-    "Documents & Cards", "Keys", "Bottles & Containers",
-    "Books & Stationery", "Toys & Games", "Other",
+# Categorization
+
+# Each entry: (keyword list, (category, item_type)) — checked in order, first match wins.
+LABEL_CATEGORY_MAP = [
+    (
+        ["backpack", "bag", "luggage", "suitcase", "handbag", "purse",
+         "tote", "briefcase", "wallet", "pouch", "duffel"],
+        ("Bags & Luggage", "bag"),
+    ),
+    (
+        ["phone", "smartphone", "mobile", "tablet", "laptop", "computer",
+         "headphone", "earphone", "earbuds", "camera", "charger", "cable",
+         "electronic", "device", "gadget", "keyboard", "mouse", "remote",
+         "speaker", "battery"],
+        ("Electronics", "electronics"),
+    ),
+    (
+        ["jacket", "coat", "shirt", "pants", "trousers", "clothing", "shoe",
+         "boot", "hat", "cap", "scarf", "glove", "umbrella", "watch",
+         "glasses", "sunglasses", "jewelry", "ring", "necklace", "bracelet",
+         "belt", "tie", "sock", "sweater", "hoodie"],
+        ("Clothing & Accessories", "clothing"),
+    ),
+    (
+        ["passport", "id card", "card", "document", "paper", "license",
+         "certificate", "folder", "envelope"],
+        ("Documents & Cards", "document"),
+    ),
+    (
+        ["key", "keychain", "keyring"],
+        ("Keys", "keys"),
+    ),
+    (
+        ["bottle", "container", "flask", "cup", "mug", "thermos",
+         "tumbler", "canteen"],
+        ("Bottles & Containers", "bottle"),
+    ),
+    (
+        ["book", "notebook", "magazine", "newspaper", "stationery",
+         "pen", "pencil", "binder"],
+        ("Books & Stationery", "book"),
+    ),
+    (
+        ["toy", "game", "stuffed animal", "doll", "action figure", "ball",
+         "plush", "puzzle"],
+        ("Toys & Games", "toy"),
+    ),
 ]
 
-ITEM_TYPES = [
-    "bag", "electronics", "clothing", "accessory", "document",
-    "keys", "bottle", "book", "toy", "other",
+
+def categorize_from_labels(labels: list) -> tuple:
+    """Map Cloud Vision label strings to a (category, item_type) pair."""
+    labels_lower = [l.lower() for l in labels]
+    for keywords, result in LABEL_CATEGORY_MAP:
+        for kw in keywords:
+            if any(kw in label for label in labels_lower):
+                return result
+    return "Other", "other"
+
+
+# Color extraction
+
+NAMED_COLORS = [
+    ("black",   (0,   0,   0)),
+    ("white",   (255, 255, 255)),
+    ("gray",    (128, 128, 128)),
+    ("red",     (220,  20,  60)),
+    ("orange",  (255, 140,   0)),
+    ("yellow",  (255, 215,   0)),
+    ("green",   ( 34, 139,  34)),
+    ("blue",    ( 30, 144, 255)),
+    ("navy",    (  0,   0, 128)),
+    ("purple",  (128,   0, 128)),
+    ("pink",    (255, 105, 180)),
+    ("brown",   (139,  69,  19)),
+    ("beige",   (245, 245, 220)),
+    ("silver",  (192, 192, 192)),
+    ("gold",    (218, 165,  32)),
 ]
 
 
-def tool_categorize_item(visual_description: str) -> dict:
-    """Text model call — categorizes the item from its description."""
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You categorize lost & found items for a transit system.\n"
-                f"Valid categories: {', '.join(CATEGORIES)}\n"
-                f"Valid item types: {', '.join(ITEM_TYPES)}\n\n"
-                "Return ONLY a JSON object: {\"category\": \"...\", \"item_type\": \"...\"}"
-            ),
-        },
-        {
-            "role": "user",
-            "content": f"Categorize this item based on the description:\n\n{visual_description}",
-        },
+def rgb_to_name(r: int, g: int, b: int) -> str:
+    """Return the nearest named color for an RGB triplet."""
+    best_name, best_dist = "unknown", float("inf")
+    for name, (nr, ng, nb) in NAMED_COLORS:
+        dist = (r - nr) ** 2 + (g - ng) ** 2 + (b - nb) ** 2
+        if dist < best_dist:
+            best_dist = dist
+            best_name = name
+    return best_name
+
+
+def extract_dominant_color(vision_response: dict) -> str:
+    """Return the top-scored dominant color name from imagePropertiesAnnotation."""
+    colors = (
+        vision_response
+        .get("imagePropertiesAnnotation", {})
+        .get("dominantColors", {})
+        .get("colors", [])
+    )
+    if not colors:
+        return "unknown"
+    top = max(colors, key=lambda c: c.get("score", 0))
+    rgb = top.get("color", {})
+    return rgb_to_name(
+        int(rgb.get("red", 0)),
+        int(rgb.get("green", 0)),
+        int(rgb.get("blue", 0)),
+    )
+
+
+# Detail extraction
+
+MATERIAL_KEYWORDS = {
+    "leather": "leather",
+    "metal":   "metal",
+    "plastic": "plastic",
+    "fabric":  "fabric",
+    "nylon":   "nylon",
+    "canvas":  "canvas",
+    "glass":   "glass",
+    "wood":    "wood",
+    "rubber":  "rubber",
+    "paper":   "paper",
+    "cotton":  "cotton",
+}
+
+
+def extract_details(vision_response: dict) -> dict:
+    """Derive structured item details from a Cloud Vision API response."""
+
+    # Labels (confidence >= 0.6)
+    label_annotations = vision_response.get("labelAnnotations", [])
+    labels = [a["description"] for a in label_annotations if a.get("score", 0) >= 0.6]
+
+    # Localized objects (confidence >= 0.5) — supplement labels
+    objects = [
+        o["name"] for o in vision_response.get("localizedObjectAnnotations", [])
+        if o.get("score", 0) >= 0.5
     ]
 
-    completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=messages,
-        temperature=0.1,
-        max_tokens=100,
-    )
-    reply = completion.choices[0].message.content.strip()
-    return _parse_json(reply)
+    # Deduplicate while preserving confidence order
+    all_labels = list(dict.fromkeys(labels + objects))
+
+    # Brand from logo detection
+    logo_annotations = vision_response.get("logoAnnotations", [])
+    brand = logo_annotations[0]["description"] if logo_annotations else "unknown"
+
+    # OCR text — only include if it looks like meaningful text, not fragmented noise
+    text_annotations = vision_response.get("textAnnotations", [])
+    detected_text = ""
+    if text_annotations:
+        raw_text = text_annotations[0]["description"].strip()
+        tokens = raw_text.split()
+        if tokens:
+            real_words = [t for t in tokens if len(t) >= 3]
+            # Require at least 3 real words and >40% of tokens to be real words
+            if len(real_words) >= 3 and len(real_words) / len(tokens) > 0.4:
+                detected_text = raw_text
+                if len(detected_text) > 200:
+                    detected_text = detected_text[:200] + "…"
+
+    # Dominant color
+    color = extract_dominant_color(vision_response)
+
+    # Category and type
+    category, item_type = categorize_from_labels(all_labels)
+
+    # item_name: "Brand TopLabel" or just "TopLabel"
+    top_label = all_labels[0] if all_labels else "Item"
+    item_name = f"{brand} {top_label}" if brand != "unknown" else top_label
+
+    # Material inferred from labels
+    material = "unknown"
+    for label in all_labels:
+        for kw, mat in MATERIAL_KEYWORDS.items():
+            if kw in label.lower():
+                material = mat
+                break
+        if material != "unknown":
+            break
+
+    # Build item_description with all non-explicit fields (type, brand, color, material,
+    # visual features, OCR text) so staff only need to fill in name, location, route, date.
+    desc_parts = []
+
+    opening = " ".join(t for t in [color, material, item_type] if t and t != "unknown")
+    if opening:
+        desc_parts.append(opening.capitalize() + ".")
+
+    if brand != "unknown":
+        desc_parts.append(f"Brand: {brand}.")
+
+    skip = {top_label.lower(), item_type.lower()}
+    feature_labels = [l for l in all_labels[1:8] if l.lower() not in skip]
+    if feature_labels:
+        desc_parts.append(f"Visual features: {', '.join(feature_labels)}.")
+
+    if detected_text:
+        desc_parts.append(f"Text visible on item: {detected_text}.")
+
+    item_description = " ".join(desc_parts) if desc_parts else f"{item_type.capitalize()} item."
+
+    return {
+        "item_name": item_name,
+        "item_type": item_type,
+        "category": category,
+        "brand": brand,
+        "model": "unknown",
+        "color": color,
+        "material": material,
+        "item_condition": "unknown",
+        "item_description": item_description,
+    }
 
 
-def tool_extract_structured_details(
-    visual_description: str, category: str, item_type: str
-) -> dict:
-    """Text model call — compiles everything into the final structured output."""
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a detail extraction agent for a transit lost & found system.\n"
-                "Given a visual description, category, and item type, produce a structured JSON.\n\n"
-                "Return ONLY a JSON object with these fields (use \"unknown\" if not identifiable):\n"
-                "{\n"
-                "  \"item_name\": \"short descriptive name, e.g. 'Black Nike Backpack'\",\n"
-                "  \"item_type\": \"<provided item_type>\",\n"
-                "  \"category\": \"<provided category>\",\n"
-                "  \"brand\": \"brand if identified\",\n"
-                "  \"model\": \"model if identified\",\n"
-                "  \"color\": \"primary color(s)\",\n"
-                "  \"material\": \"material type, e.g. leather, nylon, plastic, metal\",\n"
-                "  \"item_condition\": \"good, worn, damaged, or new\",\n"
-                "  \"item_description\": \"detailed description with distinguishing features\"\n"
-                "}"
-            ),
-        },
-        {
-            "role": "user",
-            "content": (
-                f"Category: {category}\n"
-                f"Item type: {item_type}\n\n"
-                f"Visual description:\n{visual_description}"
-            ),
-        },
-    ]
-
-    completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=messages,
-        temperature=0.1,
-        max_tokens=512,
-    )
-    reply = completion.choices[0].message.content.strip()
-    return _parse_json(reply)
-
-
-# ────────────────────────────────────────────────────────────────
-#  AGENT — orchestrates multi-step tool-use reasoning loop
-# ────────────────────────────────────────────────────────────────
-
-AGENT_SYSTEM_PROMPT = """You are a detail extraction agent for a transit lost & found system.
-Your job is to analyze an image of a found item and extract structured details.
-
-You have access to these tools:
-1. analyze_image  — visually inspect the image (use focus: "general", "branding", or "condition")
-2. categorize_item — determine the item's category and type from a description
-3. extract_structured_details — compile all findings into a final structured JSON
-
-STRATEGY:
-- Step 1: Call analyze_image with focus "general" to get an overall description
-- Step 2: Call analyze_image with focus "branding" to look for brand/model info
-- Step 3: Call categorize_item with the combined description
-- Step 4: Call extract_structured_details with all gathered information
-
-Always follow all steps. Call one tool at a time. After extract_structured_details, you are done."""
-
-MAX_AGENT_STEPS = 6
-
-
-def run_agent(image_base64: str) -> dict:
-    """Run the agent loop: the LLM decides which tools to call and when."""
-
-    # Ensure proper data URI format and resize for the vision tool
+def run_extraction(image_base64: str) -> dict:
+    """Full pipeline: resize → Cloud Vision API → extract structured details."""
     if not image_base64.startswith("data:"):
         image_base64 = f"data:image/jpeg;base64,{image_base64}"
     image_base64 = resize_image_base64(image_base64)
 
-    messages = [
-        {"role": "system", "content": AGENT_SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": "Analyze the uploaded item image and extract all details. Begin with step 1.",
-        },
-    ]
+    vision_response = call_vision_api(image_base64)
+    logger.info(f"Vision API response keys: {list(vision_response.keys())}")
 
-    final_result = None
-
-    for step in range(MAX_AGENT_STEPS):
-        logger.info(f"Agent step {step + 1}/{MAX_AGENT_STEPS}")
-
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
-            tools=TOOL_DEFINITIONS,
-            tool_choice="auto",
-            temperature=0.1,
-            max_tokens=512,
-        )
-
-        response_message = completion.choices[0].message
-        messages.append(response_message)
-
-        # If no tool calls, the agent is done reasoning
-        if not response_message.tool_calls:
-            logger.info("Agent finished — no more tool calls")
-            break
-
-        # Execute each tool call
-        for tool_call in response_message.tool_calls:
-            fn_name = tool_call.function.name
-            fn_args = json.loads(tool_call.function.arguments)
-
-            logger.info(f"Tool call: {fn_name}({json.dumps(fn_args)[:100]}...)")
-
-            if fn_name == "analyze_image":
-                result = tool_analyze_image(image_base64, fn_args.get("focus", "general"))
-                tool_result = result
-
-            elif fn_name == "categorize_item":
-                result = tool_categorize_item(fn_args["visual_description"])
-                tool_result = json.dumps(result)
-
-            elif fn_name == "extract_structured_details":
-                result = tool_extract_structured_details(
-                    fn_args["visual_description"],
-                    fn_args.get("category", "Other"),
-                    fn_args.get("item_type", "other"),
-                )
-                final_result = result
-                tool_result = json.dumps(result)
-
-            else:
-                tool_result = f"Unknown tool: {fn_name}"
-
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": tool_result,
-            })
-
-        # If we got a final result from extract_structured_details, we're done
-        if final_result is not None:
-            logger.info("Agent completed — structured details extracted")
-            break
-
-    # Fallback: if agent never called extract_structured_details, do a simple extraction
-    if final_result is None:
-        logger.warning("Agent did not produce structured output — running fallback")
-        final_result = fallback_extract(image_base64)
-
-    return final_result
+    return extract_details(vision_response)
 
 
-def fallback_extract(image_base64: str) -> dict:
-    """Single-shot fallback if the agent loop doesn't produce a result."""
-    image_base64 = resize_image_base64(image_base64)
-    description = tool_analyze_image(image_base64, "general")
-    categorization = tool_categorize_item(description)
-    return tool_extract_structured_details(
-        description,
-        categorization.get("category", "Other"),
-        categorization.get("item_type", "other"),
-    )
-
-
-# ────────────────────────────────────────────────────────────────
-#  HELPERS
-# ────────────────────────────────────────────────────────────────
-
-def _parse_json(text: str) -> dict:
-    """Parse JSON from LLM response, handling markdown code blocks."""
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:-1])
-    return json.loads(text)
-
-
-# ────────────────────────────────────────────────────────────────
-#  API ENDPOINTS
-# ────────────────────────────────────────────────────────────────
+# API endpoints
 
 class ExtractRequest(BaseModel):
     image_base64: str
@@ -421,22 +373,21 @@ def test_extract(req: ExtractRequest):
     """Diagnostic endpoint: tests each step of the extraction pipeline individually
     and reports which steps pass or fail."""
     results = {
-        "groq_api_key_set": bool(os.environ.get("GROQ_API_KEY")),
+        "service_account_configured": bool(GOOGLE_SERVICE_ACCOUNT_JSON),
         "image_received": bool(req.image_base64),
         "image_size_bytes": len(req.image_base64),
         "steps": {},
     }
 
-    if not results["groq_api_key_set"]:
+    if not results["service_account_configured"]:
         results["overall"] = "fail"
-        results["error"] = "GROQ_API_KEY is not configured"
+        results["error"] = "GOOGLE_SERVICE_ACCOUNT_JSON is not configured"
         return results
 
     image = req.image_base64
     if not image.startswith("data:"):
         image = f"data:image/jpeg;base64,{image}"
 
-    # Resize image to stay within Groq API limits
     try:
         image = resize_image_base64(image)
         results["resized_image_size"] = len(image)
@@ -445,34 +396,25 @@ def test_extract(req: ExtractRequest):
         results["error"] = f"Image processing failed: {e}"
         return results
 
-    # Step 1: Vision analysis
+    # Step 1: Cloud Vision API
     try:
-        description = tool_analyze_image(image, "general")
-        results["steps"]["analyze_image"] = {"status": "ok", "output": description[:300]}
+        vision_response = call_vision_api(image)
+        results["steps"]["vision_api"] = {
+            "status": "ok",
+            "labels": [a["description"] for a in vision_response.get("labelAnnotations", [])[:5]],
+            "logos":  [a["description"] for a in vision_response.get("logoAnnotations", [])],
+        }
     except Exception as e:
-        results["steps"]["analyze_image"] = {"status": "fail", "error": str(e)}
+        results["steps"]["vision_api"] = {"status": "fail", "error": str(e)}
         results["overall"] = "fail"
         return results
 
-    # Step 2: Categorization
+    # Step 2: Detail extraction
     try:
-        categorization = tool_categorize_item(description)
-        results["steps"]["categorize_item"] = {"status": "ok", "output": categorization}
+        structured = extract_details(vision_response)
+        results["steps"]["extract_details"] = {"status": "ok", "output": structured}
     except Exception as e:
-        results["steps"]["categorize_item"] = {"status": "fail", "error": str(e)}
-        results["overall"] = "fail"
-        return results
-
-    # Step 3: Structured extraction
-    try:
-        structured = tool_extract_structured_details(
-            description,
-            categorization.get("category", "Other"),
-            categorization.get("item_type", "other"),
-        )
-        results["steps"]["extract_structured_details"] = {"status": "ok", "output": structured}
-    except Exception as e:
-        results["steps"]["extract_structured_details"] = {"status": "fail", "error": str(e)}
+        results["steps"]["extract_details"] = {"status": "fail", "error": str(e)}
         results["overall"] = "fail"
         return results
 
@@ -482,13 +424,14 @@ def test_extract(req: ExtractRequest):
 
 @app.post("/extract", response_model=ExtractResponse)
 def extract(req: ExtractRequest):
-    if not os.environ.get("GROQ_API_KEY"):
-        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
+    if not GOOGLE_SERVICE_ACCOUNT_JSON:
+        raise HTTPException(status_code=500, detail="GOOGLE_SERVICE_ACCOUNT_JSON not configured")
     try:
-        result = run_agent(req.image_base64)
+        result = run_extraction(req.image_base64)
         return ExtractResponse(**result)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Failed to parse AI response as JSON")
+    except requests.HTTPError as e:
+        logger.error(f"Cloud Vision API error: {e}")
+        raise HTTPException(status_code=502, detail=f"Cloud Vision API error: {e}")
     except Exception as e:
-        logger.error(f"Agent error: {e}")
+        logger.error(f"Extraction error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
