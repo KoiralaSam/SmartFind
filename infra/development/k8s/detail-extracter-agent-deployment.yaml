@@ -27,11 +27,11 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: ENVIRONMENT
-            - name: GROQ_API_KEY
+            - name: GOOGLE_SERVICE_ACCOUNT_JSON
               valueFrom:
                 secretKeyRef:
-                  name: groq-api-key
-                  key: GROQ_API_KEY
+                  name: google-service-account
+                  key: GOOGLE_SERVICE_ACCOUNT_JSON
           readinessProbe:
             httpGet:
               path: /health
