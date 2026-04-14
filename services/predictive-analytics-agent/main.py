@@ -11,6 +11,8 @@ from contextlib import contextmanager
 from dotenv import load_dotenv, find_dotenv
 import psycopg
 from psycopg.rows import dict_row
+from google.oauth2 import service_account
+from google.cloud import bigquery
 from groq import Groq
 
 load_dotenv(find_dotenv())
@@ -27,7 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
@@ -35,10 +37,40 @@ if not DATABASE_URL:
 
 MAX_AGENT_STEPS = 8
 
+# BigQuery project / dataset resolved from service account JSON
+_sa_info: dict = {}
+_raw_sa_json = os.environ.get("ANALYTICS_GOOGLE_SERVICE_ACCOUNT_JSON")
+if _raw_sa_json:
+    _sa_info = json.loads(_raw_sa_json)
 
-# ────────────────────────────────────────────────────────────────
-#  DATABASE HELPERS
-# ────────────────────────────────────────────────────────────────
+BQ_PROJECT = os.environ.get("BIGQUERY_PROJECT") or _sa_info.get("project_id", "")
+BQ_DATASET = os.environ.get("BIGQUERY_DATASET", "smartfind")
+
+
+# BigQuery client
+
+_bq_client: bigquery.Client | None = None
+
+
+def get_bq_client() -> bigquery.Client:
+    global _bq_client
+    if _bq_client is None:
+        if not _sa_info:
+            raise RuntimeError("ANALYTICS_GOOGLE_SERVICE_ACCOUNT_JSON environment variable is not set")
+        credentials = service_account.Credentials.from_service_account_info(
+            _sa_info,
+            scopes=["https://www.googleapis.com/auth/bigquery.readonly"],
+        )
+        _bq_client = bigquery.Client(project=BQ_PROJECT, credentials=credentials)
+    return _bq_client
+
+
+def _table(name: str) -> str:
+    # Returns fully-qualified BigQuery table reference
+    return f"`{BQ_PROJECT}.{BQ_DATASET}.{name}`"
+
+
+# PostgreSQL helpers (used only for storing / reading reports)
 
 @contextmanager
 def get_conn():
@@ -54,7 +86,7 @@ def get_conn():
 
 
 def _serialize(obj: Any) -> Any:
-    """Make DB result rows JSON-safe (datetime → ISO string, UUID → str)."""
+    """Make result rows JSON-safe (datetime → ISO string, UUID → str)."""
     if isinstance(obj, datetime):
         return obj.isoformat()
     if isinstance(obj, date):
@@ -64,154 +96,51 @@ def _serialize(obj: Any) -> Any:
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 
-def rows_to_json(rows: list) -> str:
-    return json.dumps(rows, default=_serialize)
+def _parse_json(text: str) -> dict:
+    text = text.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        text = "\n".join(lines[1:-1])
+    return json.loads(text)
 
 
-# ────────────────────────────────────────────────────────────────
-#  TOOL DEFINITIONS  (Groq function-calling schemas)
-# ────────────────────────────────────────────────────────────────
+# BigQuery data fetches
 
-TOOL_DEFINITIONS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "fetch_route_statistics",
-            "description": (
-                "Query the database for incident counts (lost reports + found items) "
-                "grouped by route and station over a given time window. "
-                "Returns ranked list of locations with incident totals."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "days_back": {
-                        "type": "integer",
-                        "description": "How many days of history to analyse (e.g. 30, 90, 365)",
-                    }
-                },
-                "required": ["days_back"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "fetch_temporal_patterns",
-            "description": (
-                "Query the database for time-based loss patterns: "
-                "breakdowns by day-of-week and by month. "
-                "Reveals when incidents peak."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "days_back": {
-                        "type": "integer",
-                        "description": "How many days of history to include",
-                    }
-                },
-                "required": ["days_back"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "fetch_category_hotspots",
-            "description": (
-                "Query the database for the item categories most commonly lost at each "
-                "route or station. Helps identify whether a hotspot sees mostly electronics, "
-                "bags, documents, etc."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "days_back": {
-                        "type": "integer",
-                        "description": "How many days of history to include",
-                    },
-                    "top_n": {
-                        "type": "integer",
-                        "description": "Number of top locations to analyse (default 10)",
-                    },
-                },
-                "required": ["days_back"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "generate_hotspot_report",
-            "description": (
-                "Compile all gathered statistics into a final structured hotspot report. "
-                "Assign a risk_score (0–10) and risk_level (low/medium/high/critical) to "
-                "each location. Include trend direction and AI recommendations."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "route_stats": {
-                        "type": "string",
-                        "description": "JSON string of route statistics from fetch_route_statistics",
-                    },
-                    "temporal_stats": {
-                        "type": "string",
-                        "description": "JSON string of temporal patterns from fetch_temporal_patterns",
-                    },
-                    "category_stats": {
-                        "type": "string",
-                        "description": "JSON string of category hotspots from fetch_category_hotspots",
-                    },
-                },
-                "required": ["route_stats", "temporal_stats", "category_stats"],
-            },
-        },
-    },
-]
-
-
-# ────────────────────────────────────────────────────────────────
-#  TOOL IMPLEMENTATIONS  (execute real DB queries)
-# ────────────────────────────────────────────────────────────────
-
-def tool_fetch_route_statistics(days_back: int) -> dict:
+def fetch_route_statistics(days_back: int) -> dict:
     since = datetime.now() - timedelta(days=days_back)
+    bq = get_bq_client()
 
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                # Passenger lost reports grouped by route / station
-                cur.execute(
-                    """
-                    SELECT
-                        COALESCE(r.route_name, lr.route_or_station, 'Unknown') AS location,
-                        r.id::text                                              AS route_id,
-                        COUNT(lr.id)                                            AS incident_count,
-                        COUNT(lr.id) FILTER (WHERE lr.status = 'open')         AS open_count,
-                        COUNT(lr.id) FILTER (WHERE lr.status = 'matched')      AS matched_count,
-                        MAX(lr.created_at)                                      AS last_incident
-                    FROM lost_reports lr
-                    LEFT JOIN routes r ON r.id = lr.route_id
-                    WHERE lr.created_at >= %s
-                    GROUP BY COALESCE(r.route_name, lr.route_or_station, 'Unknown'), r.id
-                    ORDER BY incident_count DESC
-                    LIMIT 20
-                    """,
-                    (since,),
-                )
-                rows = cur.fetchall()
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("since", "TIMESTAMP", since),
+        ]
+    )
 
-                cur.execute(
-                    "SELECT COUNT(*) AS n FROM lost_reports WHERE created_at >= %s",
-                    (since,),
-                )
-                total = cur.fetchone()["n"]
+    query = f"""
+        SELECT
+            COALESCE(r.route_name, lr.route_or_station, 'Unknown') AS location,
+            CAST(r.id AS STRING)                                    AS route_id,
+            COUNT(lr.id)                                            AS incident_count,
+            COUNTIF(lr.status = 'open')                            AS open_count,
+            COUNTIF(lr.status = 'matched')                         AS matched_count,
+            MAX(lr.created_at)                                      AS last_incident
+        FROM {_table('lost_reports')} lr
+        LEFT JOIN {_table('routes')} r ON r.id = lr.route_id
+        WHERE lr.created_at >= @since
+        GROUP BY location, route_id
+        ORDER BY incident_count DESC
+        LIMIT 20
+    """
 
-    except Exception as e:
-        logger.error(f"DB error in fetch_route_statistics: {e}")
-        return {"error": str(e), "locations": [], "total_incidents": 0}
+    total_query = f"""
+        SELECT COUNT(*) AS n
+        FROM {_table('lost_reports')}
+        WHERE created_at >= @since
+    """
+
+    rows = list(bq.query(query, job_config=job_config).result())
+    total_rows = list(bq.query(total_query, job_config=job_config).result())
+    total = total_rows[0]["n"] if total_rows else 0
 
     locations = [
         {
@@ -233,114 +162,97 @@ def tool_fetch_route_statistics(days_back: int) -> dict:
     }
 
 
-def tool_fetch_temporal_patterns(days_back: int) -> dict:
+def fetch_temporal_patterns(days_back: int) -> dict:
     since = datetime.now() - timedelta(days=days_back)
+    bq = get_bq_client()
 
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                # Day-of-week breakdown (0=Sunday in PostgreSQL DOW)
-                cur.execute(
-                    """
-                    SELECT
-                        TO_CHAR(created_at, 'Day') AS day_name,
-                        EXTRACT(DOW FROM created_at)::int AS day_num,
-                        COUNT(*) AS incident_count
-                    FROM lost_reports
-                    WHERE created_at >= %s
-                    GROUP BY day_name, day_num
-                    ORDER BY day_num
-                    """,
-                    (since,),
-                )
-                by_day = cur.fetchall()
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("since", "TIMESTAMP", since),
+        ]
+    )
 
-                # Monthly breakdown
-                cur.execute(
-                    """
-                    SELECT
-                        TO_CHAR(created_at, 'YYYY-MM') AS month,
-                        COUNT(*) AS incident_count
-                    FROM lost_reports
-                    WHERE created_at >= %s
-                    GROUP BY month
-                    ORDER BY month
-                    """,
-                    (since,),
-                )
-                by_month = cur.fetchall()
+    # DAYOFWEEK: 1=Sunday … 7=Saturday in BigQuery
+    dow_query = f"""
+        SELECT
+            FORMAT_TIMESTAMP('%A', created_at) AS day_name,
+            EXTRACT(DAYOFWEEK FROM created_at)  AS day_num,
+            COUNT(*)                            AS incident_count
+        FROM {_table('lost_reports')}
+        WHERE created_at >= @since
+        GROUP BY day_name, day_num
+        ORDER BY day_num
+    """
 
-                # Hour-of-day breakdown (from date_lost field if populated, else created_at)
-                cur.execute(
-                    """
-                    SELECT
-                        EXTRACT(HOUR FROM created_at)::int AS hour_of_day,
-                        COUNT(*) AS incident_count
-                    FROM lost_reports
-                    WHERE created_at >= %s
-                    GROUP BY hour_of_day
-                    ORDER BY hour_of_day
-                    """,
-                    (since,),
-                )
-                by_hour = cur.fetchall()
+    month_query = f"""
+        SELECT
+            FORMAT_TIMESTAMP('%Y-%m', created_at) AS month,
+            COUNT(*)                              AS incident_count
+        FROM {_table('lost_reports')}
+        WHERE created_at >= @since
+        GROUP BY month
+        ORDER BY month
+    """
 
-    except Exception as e:
-        logger.error(f"DB error in fetch_temporal_patterns: {e}")
-        return {"error": str(e), "by_day": [], "by_month": [], "by_hour": []}
+    hour_query = f"""
+        SELECT
+            EXTRACT(HOUR FROM created_at) AS hour_of_day,
+            COUNT(*)                      AS incident_count
+        FROM {_table('lost_reports')}
+        WHERE created_at >= @since
+        GROUP BY hour_of_day
+        ORDER BY hour_of_day
+    """
+
+    by_day = [dict(r) for r in bq.query(dow_query, job_config=job_config).result()]
+    by_month = [dict(r) for r in bq.query(month_query, job_config=job_config).result()]
+    by_hour = [dict(r) for r in bq.query(hour_query, job_config=job_config).result()]
 
     return {
         "period_days": days_back,
-        "by_day_of_week": [dict(r) for r in by_day],
-        "by_month": [dict(r) for r in by_month],
-        "by_hour_of_day": [dict(r) for r in by_hour],
+        "by_day_of_week": by_day,
+        "by_month": by_month,
+        "by_hour_of_day": by_hour,
     }
 
 
-def tool_fetch_category_hotspots(days_back: int, top_n: int = 10) -> dict:
+def fetch_category_hotspots(days_back: int, top_n: int = 10) -> dict:
     since = datetime.now() - timedelta(days=days_back)
+    bq = get_bq_client()
 
-    try:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                # Categories most lost per route/station
-                cur.execute(
-                    """
-                    SELECT
-                        COALESCE(r.route_name, lr.route_or_station, 'Unknown') AS location,
-                        COALESCE(lr.category, 'Other')                          AS category,
-                        COUNT(*)                                                 AS count
-                    FROM lost_reports lr
-                    LEFT JOIN routes r ON r.id = lr.route_id
-                    WHERE lr.created_at >= %s
-                    GROUP BY location, category
-                    ORDER BY location, count DESC
-                    LIMIT %s
-                    """,
-                    (since, top_n * 5),  # fetch more, group below
-                )
-                rows = cur.fetchall()
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("since", "TIMESTAMP", since),
+            bigquery.ScalarQueryParameter("limit_n", "INT64", top_n * 5),
+        ]
+    )
 
-                # Overall category distribution
-                cur.execute(
-                    """
-                    SELECT
-                        COALESCE(category, 'Other') AS category,
-                        COUNT(*) AS count
-                    FROM lost_reports
-                    WHERE created_at >= %s
-                    GROUP BY category
-                    ORDER BY count DESC
-                    """,
-                    (since,),
-                )
-                overall_categories = cur.fetchall()
+    location_query = f"""
+        SELECT
+            COALESCE(r.route_name, lr.route_or_station, 'Unknown') AS location,
+            COALESCE(lr.category, 'Other')                          AS category,
+            COUNT(*)                                                AS count
+        FROM {_table('lost_reports')} lr
+        LEFT JOIN {_table('routes')} r ON r.id = lr.route_id
+        WHERE lr.created_at >= @since
+        GROUP BY location, category
+        ORDER BY location, count DESC
+        LIMIT @limit_n
+    """
 
-    except Exception as e:
-        logger.error(f"DB error in fetch_category_hotspots: {e}")
-        return {"error": str(e), "by_location": [], "overall": []}
+    overall_query = f"""
+        SELECT
+            COALESCE(category, 'Other') AS category,
+            COUNT(*)                    AS count
+        FROM {_table('lost_reports')}
+        WHERE created_at >= @since
+        GROUP BY category
+        ORDER BY count DESC
+    """
 
-    # Group by location → top categories
+    rows = list(bq.query(location_query, job_config=job_config).result())
+    overall_categories = [dict(r) for r in bq.query(overall_query, job_config=job_config).result()]
+
     location_map: dict[str, list] = {}
     for row in rows:
         loc = row["location"]
@@ -356,18 +268,22 @@ def tool_fetch_category_hotspots(days_back: int, top_n: int = 10) -> dict:
     return {
         "period_days": days_back,
         "by_location": by_location,
-        "overall_category_distribution": [dict(r) for r in overall_categories],
+        "overall_category_distribution": overall_categories,
     }
 
 
-def tool_generate_hotspot_report(
-    route_stats: str, temporal_stats: str, category_stats: str
+# Report generator (Groq LLM interprets BigQuery results)
+
+def generate_hotspot_report(
+    route_stats: dict,
+    temporal_stats: dict,
+    category_stats: dict,
 ) -> dict:
-    """Ask the LLM to interpret all statistics and produce the final structured report."""
+    """Send BigQuery results to Groq and get a structured hotspot report back."""
 
     system_prompt = """You are a transit safety analytics AI for a lost & found system.
-You have been given three data sources derived exclusively from passenger lost item reports:
-1. route_stats: lost report counts per route/station (passenger submissions only)
+You have been given three data sources queried from BigQuery:
+1. route_stats: lost report counts per route/station
 2. temporal_stats: time-based patterns (day-of-week, month, hour)
 3. category_stats: item categories most reported lost at each location
 
@@ -376,11 +292,11 @@ Your task: produce a structured JSON hotspot report.
 Rules:
 - risk_score: float 0.0–10.0 (higher = more risk)
 - risk_level: "low" (<3), "medium" (3–5), "high" (6–8), "critical" (>8)
-- trend: "increasing", "stable", or "decreasing" (infer from available data; default "stable" if unclear)
+- trend: "increasing", "stable", or "decreasing" (infer from data; default "stable" if unclear)
 - Include up to 10 hotspots ranked by risk_score
 - If total_incidents is 0, return an empty hotspots list with summary "No incidents recorded yet"
 
-Return ONLY a JSON object in this exact format:
+Return ONLY valid JSON in this exact format:
 {
   "summary": "one-paragraph narrative for transit authorities",
   "total_incidents_analyzed": <integer>,
@@ -410,151 +326,43 @@ Return ONLY a JSON object in this exact format:
   ]
 }"""
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {
-            "role": "user",
-            "content": (
-                f"ROUTE STATISTICS:\n{route_stats}\n\n"
-                f"TEMPORAL PATTERNS:\n{temporal_stats}\n\n"
-                f"CATEGORY DISTRIBUTION:\n{category_stats}"
-            ),
-        },
-    ]
-
-    completion = client.chat.completions.create(
+    completion = groq_client.chat.completions.create(
         model="llama-3.3-70b-versatile",
-        messages=messages,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {
+                "role": "user",
+                "content": (
+                    f"ROUTE STATISTICS:\n{json.dumps(route_stats, default=_serialize)}\n\n"
+                    f"TEMPORAL PATTERNS:\n{json.dumps(temporal_stats, default=_serialize)}\n\n"
+                    f"CATEGORY DISTRIBUTION:\n{json.dumps(category_stats, default=_serialize)}"
+                ),
+            },
+        ],
         temperature=0.2,
         max_tokens=2048,
     )
-    reply = completion.choices[0].message.content.strip()
-    return _parse_json(reply)
+    return _parse_json(completion.choices[0].message.content.strip())
 
 
-# ────────────────────────────────────────────────────────────────
-#  AGENT — orchestrates the tool-use reasoning loop
-# ────────────────────────────────────────────────────────────────
+# Analytics runner
 
-AGENT_SYSTEM_PROMPT = """You are the Predictive Analytics Agent for SmartFind, a transit lost & found system.
+def run_analytics() -> dict:
+    """Fetch data from BigQuery, then use Groq to generate the hotspot report."""
+    logger.info("Fetching route statistics from BigQuery")
+    route_stats = fetch_route_statistics(90)
 
-Your goal is to analyse historical lost-and-found data and generate a daily hotspot map for transit authorities.
+    logger.info("Fetching temporal patterns from BigQuery")
+    temporal_stats = fetch_temporal_patterns(90)
 
-You have four tools:
-1. fetch_route_statistics(days_back)   — incident counts per route/station
-2. fetch_temporal_patterns(days_back)  — when losses peak (day, month, hour)
-3. fetch_category_hotspots(days_back)  — which item types are lost where
-4. generate_hotspot_report(...)        — compile everything into the final report
+    logger.info("Fetching category hotspots from BigQuery")
+    category_stats = fetch_category_hotspots(90, top_n=10)
 
-STRATEGY:
-- Step 1: Call fetch_route_statistics with days_back=90 for a broad view
-- Step 2: Call fetch_temporal_patterns with days_back=90
-- Step 3: Call fetch_category_hotspots with days_back=90 and top_n=10
-- Step 4: Call generate_hotspot_report with the JSON results from all three steps
-
-Always execute all four steps in order. Call one tool at a time."""
+    logger.info("Generating hotspot report with Groq")
+    return generate_hotspot_report(route_stats, temporal_stats, category_stats)
 
 
-def run_analytics_agent() -> dict:
-    """Run the predictive analytics agent loop and return the hotspot report."""
-
-    messages = [
-        {"role": "system", "content": AGENT_SYSTEM_PROMPT},
-        {
-            "role": "user",
-            "content": (
-                "Generate today's hotspot analysis report. "
-                "Start with step 1: fetch route statistics."
-            ),
-        },
-    ]
-
-    # Collected raw stats — passed to generate_hotspot_report
-    collected = {
-        "route_stats": None,
-        "temporal_stats": None,
-        "category_stats": None,
-    }
-    final_report = None
-
-    for step in range(MAX_AGENT_STEPS):
-        logger.info(f"Analytics agent step {step + 1}/{MAX_AGENT_STEPS}")
-
-        completion = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=messages,
-            tools=TOOL_DEFINITIONS,
-            tool_choice="auto",
-            temperature=0.1,
-            max_tokens=1024,
-        )
-
-        response_message = completion.choices[0].message
-        messages.append(response_message)
-
-        if not response_message.tool_calls:
-            logger.info("Agent finished — no more tool calls")
-            break
-
-        for tool_call in response_message.tool_calls:
-            fn_name = tool_call.function.name
-            fn_args = json.loads(tool_call.function.arguments)
-            logger.info(f"Tool call: {fn_name}({fn_args})")
-
-            if fn_name == "fetch_route_statistics":
-                result = tool_fetch_route_statistics(fn_args.get("days_back", 90))
-                tool_result_str = rows_to_json(result) if isinstance(result, list) else json.dumps(result, default=_serialize)
-                collected["route_stats"] = tool_result_str
-
-            elif fn_name == "fetch_temporal_patterns":
-                result = tool_fetch_temporal_patterns(fn_args.get("days_back", 90))
-                tool_result_str = json.dumps(result, default=_serialize)
-                collected["temporal_stats"] = tool_result_str
-
-            elif fn_name == "fetch_category_hotspots":
-                result = tool_fetch_category_hotspots(
-                    fn_args.get("days_back", 90),
-                    fn_args.get("top_n", 10),
-                )
-                tool_result_str = json.dumps(result, default=_serialize)
-                collected["category_stats"] = tool_result_str
-
-            elif fn_name == "generate_hotspot_report":
-                # Agent may pass data it collected via earlier tool results
-                route_s = fn_args.get("route_stats") or collected["route_stats"] or "{}"
-                temporal_s = fn_args.get("temporal_stats") or collected["temporal_stats"] or "{}"
-                category_s = fn_args.get("category_stats") or collected["category_stats"] or "{}"
-                result_dict = tool_generate_hotspot_report(route_s, temporal_s, category_s)
-                final_report = result_dict
-                tool_result_str = json.dumps(result_dict, default=_serialize)
-
-            else:
-                tool_result_str = f"Unknown tool: {fn_name}"
-
-            messages.append({
-                "role": "tool",
-                "tool_call_id": tool_call.id,
-                "content": tool_result_str,
-            })
-
-        if final_report is not None:
-            logger.info("Analytics agent completed — hotspot report generated")
-            break
-
-    # Fallback: if agent never called generate_hotspot_report, run it directly
-    if final_report is None:
-        logger.warning("Agent did not call generate_hotspot_report — running fallback")
-        route_s = collected["route_stats"] or json.dumps(tool_fetch_route_statistics(90), default=_serialize)
-        temporal_s = collected["temporal_stats"] or json.dumps(tool_fetch_temporal_patterns(90), default=_serialize)
-        category_s = collected["category_stats"] or json.dumps(tool_fetch_category_hotspots(90), default=_serialize)
-        final_report = tool_generate_hotspot_report(route_s, temporal_s, category_s)
-
-    return final_report
-
-
-# ────────────────────────────────────────────────────────────────
-#  PERSIST REPORT TO DATABASE
-# ────────────────────────────────────────────────────────────────
+# Persist report to PostgreSQL
 
 def save_report(report: dict, report_date: date) -> str:
     """Upsert the hotspot report into the hotspot_reports table. Returns the row id."""
@@ -586,7 +394,7 @@ def save_report(report: dict, report_date: date) -> str:
                         report.get("total_incidents_analyzed", 0),
                         json.dumps(report.get("hotspots", [])),
                         json.dumps(report.get("temporal_insights", {})),
-                        json.dumps({}),                              # reserved for future category breakdown
+                        json.dumps({}),  # reserved for future category breakdown
                         report.get("summary", ""),
                         json.dumps(report.get("recommendations", [])),
                     ),
@@ -598,24 +406,10 @@ def save_report(report: dict, report_date: date) -> str:
         raise
 
 
-# ────────────────────────────────────────────────────────────────
-#  HELPERS
-# ────────────────────────────────────────────────────────────────
-
-def _parse_json(text: str) -> dict:
-    text = text.strip()
-    if text.startswith("```"):
-        lines = text.split("\n")
-        text = "\n".join(lines[1:-1])
-    return json.loads(text)
-
-
-# ────────────────────────────────────────────────────────────────
-#  PYDANTIC MODELS
-# ────────────────────────────────────────────────────────────────
+# Pydantic models
 
 class RunAnalyticsRequest(BaseModel):
-    report_date: str | None = None   # ISO date string, defaults to today
+    report_date: str | None = None  # ISO date string, defaults to today
 
 
 class HotspotEntry(BaseModel):
@@ -648,9 +442,7 @@ class AnalyticsReport(BaseModel):
     recommendations: list[str]
 
 
-# ────────────────────────────────────────────────────────────────
-#  API ENDPOINTS
-# ────────────────────────────────────────────────────────────────
+# API endpoints
 
 @app.get("/health")
 def health():
@@ -658,19 +450,18 @@ def health():
 
 
 @app.post("/analytics/run")
-def run_analytics(req: RunAnalyticsRequest):
+def run_analytics_endpoint(req: RunAnalyticsRequest):
     """
-    Trigger the predictive analytics agent manually.
+    Trigger the analytics agent manually.
 
-    This endpoint is also the target for a nightly cron job (e.g. 02:00 AM server time).
-    The agent queries historical data, identifies hotspots, and persists the result.
-
-    Returns the generated report immediately.
+    Queries BigQuery for historical data, uses Groq to generate the hotspot report,
+    and persists the result to PostgreSQL.
     """
     if not os.environ.get("GROQ_API_KEY"):
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
+    if not _sa_info:
+        raise HTTPException(status_code=500, detail="ANALYTICS_GOOGLE_SERVICE_ACCOUNT_JSON not configured")
 
-    # Determine target date
     target_date: date
     if req.report_date:
         try:
@@ -680,15 +471,15 @@ def run_analytics(req: RunAnalyticsRequest):
     else:
         target_date = date.today()
 
-    logger.info(f"Running analytics agent for {target_date}")
+    logger.info(f"Running analytics for {target_date}")
 
     try:
-        report = run_analytics_agent()
+        report = run_analytics()
     except Exception as e:
-        logger.error(f"Analytics agent failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Agent failed: {e}")
+        logger.error(f"Analytics failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Analytics failed: {e}")
 
-    # Persist to database (non-blocking on error — still return the report)
+    # Persist to PostgreSQL (non-blocking on error — still return the report)
     try:
         report_id = save_report(report, target_date)
         logger.info(f"Hotspot report saved: id={report_id} date={target_date}")
@@ -707,12 +498,8 @@ def run_analytics(req: RunAnalyticsRequest):
 @app.get("/analytics/heatmap")
 def get_heatmap(days: int = 7):
     """
-    Return heatmap data for the latest stored hotspot report.
-    Falls back to a live lightweight query if no report is stored yet,
-    and returns an empty response if no data exists at all.
-
-    Query param:
-      days  — how many days of history to consider when falling back (default 7)
+    Return heatmap data from the latest stored hotspot report.
+    Falls back to a live BigQuery query if no report is stored yet.
     """
     row = None
     try:
@@ -745,11 +532,11 @@ def get_heatmap(days: int = 7):
             "recommendations": row["ai_recommendations"],
         }
 
-    # No stored report — try a lightweight live aggregation
+    # No stored report — live BigQuery aggregation
     try:
-        live = tool_fetch_route_statistics(days)
+        live = fetch_route_statistics(days)
     except Exception as e:
-        logger.warning(f"Live query also failed: {e}")
+        logger.warning(f"Live BigQuery query failed: {e}")
         return {
             "source": "unavailable",
             "message": "No incidents recorded yet. The heatmap will populate as data arrives.",
@@ -777,7 +564,7 @@ def get_heatmap(days: int = 7):
 def get_hotspots(top: int = 10):
     """
     Return the top N high-risk routes/stations from the latest stored report.
-    Falls back to a live aggregation if no report exists.
+    Falls back to a live BigQuery aggregation if no report exists.
     """
     row = None
     try:
@@ -797,11 +584,10 @@ def get_hotspots(top: int = 10):
         logger.warning(f"Could not query hotspot_reports (migration pending?): {e}")
 
     if row is None:
-        # No stored report — return live ranking
         try:
-            live = tool_fetch_route_statistics(30)
+            live = fetch_route_statistics(30)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"No stored report and live query failed: {e}")
+            raise HTTPException(status_code=500, detail=f"No stored report and live BigQuery query failed: {e}")
 
         locations = live.get("locations", [])[:top]
         if not locations:
@@ -812,7 +598,7 @@ def get_hotspots(top: int = 10):
             }
         return {
             "source": "live",
-            "note": "Run POST /analytics/run to generate a full AI-powered report",
+            "note": "Run POST /analytics/run to generate a full report",
             "hotspots": locations,
         }
 
