@@ -11,6 +11,7 @@ ALTER TABLE passengers
 
 ALTER TABLE staff
   ADD COLUMN IF NOT EXISTS password_hash TEXT;
+  ALTER COLUMN id set default gen_random_uuid();
 
 ALTER TABLE found_items
   ADD COLUMN IF NOT EXISTS route_id UUID REFERENCES routes(id) ON DELETE SET NULL;
