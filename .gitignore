@@ -91,3 +91,4 @@ build/
 .venv/
 __pycache__/
 *.pyc
+CLAUDE.md
