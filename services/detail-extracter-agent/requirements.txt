@@ -1,5 +1,6 @@
 fastapi
 uvicorn[standard]
-groq
+requests
+google-auth
 python-dotenv
 Pillow
