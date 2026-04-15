@@ -73,8 +73,7 @@ func (s *PassengerService) Login(ctx context.Context, in inbound.LoginInput) (*i
 }
 
 func (s *PassengerService) CreateLostReport(ctx context.Context, in inbound.CreateLostReportInput) (*inbound.LostReport, error) {
-	embeddingText := buildLostReportEmbeddingText(in)
-	embedding, err := embedTextOpenAI(ctx, embeddingText)
+	embedding, err := embedLostReportOpenAI(ctx, in)
 	if err != nil {
 		return nil, err
 	}
