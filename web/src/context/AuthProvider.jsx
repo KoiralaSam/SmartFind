@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { isValidInvitationCode } from "../auth/invitation";
-import { findStaffByEmail, registerStaffAccount } from "../auth/staffAccounts";
+import { passengerLogout, staffLogin, staffLogout, staffSignup } from "../api/gateway";
 import { AuthContext } from "./auth-context";
 
 const STORAGE_KEY = "smartfind-auth";
@@ -22,54 +21,46 @@ export function AuthProvider({ children }) {
   }, []);
 
   const loginStaff = useCallback(async (email, password) => {
-    const account = findStaffByEmail(email);
-    if (!account || account.password !== password) {
-      return {
-        ok: false,
-        error: "Invalid email or password.",
-      };
-    }
-    const next = {
-      email: account.email,
-      name: account.name,
-      role: "staff",
-      authProvider: "password",
-    };
-    setUser(next);
-    persistUser(next);
-    return { ok: true };
-  }, []);
-
-  const signupStaff = useCallback(
-    async ({ email, password, invitationCode, name }) => {
-      if (!isValidInvitationCode(invitationCode)) {
-        return { ok: false, error: "Invalid or expired transit code." };
+    try {
+      const payload = await staffLogin(email.trim(), password);
+      const staff = payload?.staff;
+      if (!staff?.id || !staff?.email) {
+        return { ok: false, error: "Staff profile was missing in response." };
       }
-      const normalized = email.trim().toLowerCase();
-      if (findStaffByEmail(normalized)) {
-        return {
-          ok: false,
-          error: "An account with this email already exists.",
-        };
-      }
-      const displayName =
-        (name && name.trim()) || normalized.split("@")[0] || "Staff";
-      registerStaffAccount({
-        email: normalized,
-        password,
-        name: displayName,
-      });
       const next = {
-        email: normalized,
-        name: displayName,
+        id: staff.id,
+        email: staff.email,
+        name: staff.full_name || staff.email.split("@")[0] || "Staff",
         role: "staff",
         authProvider: "password",
+        sessionToken: payload.session_token || undefined,
       };
       setUser(next);
       persistUser(next);
       return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err?.message || "Staff login failed." };
+    }
+  }, []);
+
+  const signupStaff = useCallback(
+    async ({ email, password, invitationCode, name }) => {
+      const normalized = email.trim().toLowerCase();
+      const displayName =
+        (name && name.trim()) || normalized.split("@")[0] || "Staff";
+      try {
+        await staffSignup({
+          transitCode: invitationCode,
+          fullName: displayName,
+          email: normalized,
+          password,
+        });
+      } catch (err) {
+        return { ok: false, error: err?.message || "Signup failed." };
+      }
+      return loginStaff(normalized, password);
     },
-    [],
+    [loginStaff],
   );
 
   const loginPassengerGoogle = useCallback(async (credential) => {
@@ -119,10 +110,18 @@ export function AuthProvider({ children }) {
     return { ok: true };
   }, []);
 
-  const logout = useCallback(() => {
-    setUser(null);
-    sessionStorage.removeItem(STORAGE_KEY);
-  }, []);
+  const logout = useCallback(async () => {
+    try {
+      if (user?.role === "staff") {
+        await staffLogout();
+      } else if (user?.role === "passenger") {
+        await passengerLogout();
+      }
+    } finally {
+      setUser(null);
+      sessionStorage.removeItem(STORAGE_KEY);
+    }
+  }, [user]);
 
   const value = useMemo(
     () => ({

@@ -69,16 +69,30 @@ func (r *StaffRepository) DeleteFoundItem(ctx context.Context, foundItemID strin
 	if strings.TrimSpace(foundItemID) == "" {
 		return errors.New("foundItemID is required")
 	}
-	// Best-effort cleanup of the embeddings table (no FK exists there today).
-	_, _ = r.pool.Exec(ctx, `
+
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	_, err = tx.Exec(ctx, `
 		DELETE FROM found_item_embeddings
 		WHERE found_item_id = NULLIF($1, '')::uuid
 	`, foundItemID)
-	_, err := r.pool.Exec(ctx, `
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, `
 		DELETE FROM found_items
 		WHERE id = NULLIF($1, '')::uuid
 	`, foundItemID)
-	return err
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *StaffRepository) UpsertFoundItemEmbedding(ctx context.Context, foundItemID string, embedding []float32) error {

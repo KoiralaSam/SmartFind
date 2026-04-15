@@ -39,6 +39,11 @@ spec:
                 configMapKeyRef:
                   key: PASSENGER_SERVICE_ADDRESS
                   name: app-config
+            - name: STAFF_SERVICE_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  key: STAFF_SERVICE_ADDRESS
+                  name: app-config
           readinessProbe:
             tcpSocket:
               port: http

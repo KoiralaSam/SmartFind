@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	PassengerService_Login_FullMethodName                  = "/smartfind.passenger.v1.PassengerService/Login"
+	PassengerService_Logout_FullMethodName                 = "/smartfind.passenger.v1.PassengerService/Logout"
 	PassengerService_CreateLostReport_FullMethodName       = "/smartfind.passenger.v1.PassengerService/CreateLostReport"
 	PassengerService_ListLostReports_FullMethodName        = "/smartfind.passenger.v1.PassengerService/ListLostReports"
 	PassengerService_DeleteLostReport_FullMethodName       = "/smartfind.passenger.v1.PassengerService/DeleteLostReport"
@@ -33,6 +34,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PassengerServiceClient interface {
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
+	Logout(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	CreateLostReport(ctx context.Context, in *CreateLostReportRequest, opts ...grpc.CallOption) (*LostReport, error)
 	ListLostReports(ctx context.Context, in *ListLostReportsRequest, opts ...grpc.CallOption) (*ListLostReportsResponse, error)
 	DeleteLostReport(ctx context.Context, in *DeleteLostReportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
@@ -52,6 +54,16 @@ func (c *passengerServiceClient) Login(ctx context.Context, in *LoginRequest, op
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(LoginResponse)
 	err := c.cc.Invoke(ctx, PassengerService_Login_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *passengerServiceClient) Logout(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(emptypb.Empty)
+	err := c.cc.Invoke(ctx, PassengerService_Logout_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +125,7 @@ func (c *passengerServiceClient) FileClaim(ctx context.Context, in *FileClaimReq
 // for forward compatibility.
 type PassengerServiceServer interface {
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
+	Logout(context.Context, *emptypb.Empty) (*emptypb.Empty, error)
 	CreateLostReport(context.Context, *CreateLostReportRequest) (*LostReport, error)
 	ListLostReports(context.Context, *ListLostReportsRequest) (*ListLostReportsResponse, error)
 	DeleteLostReport(context.Context, *DeleteLostReportRequest) (*emptypb.Empty, error)
@@ -130,6 +143,9 @@ type UnimplementedPassengerServiceServer struct{}
 
 func (UnimplementedPassengerServiceServer) Login(context.Context, *LoginRequest) (*LoginResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Login not implemented")
+}
+func (UnimplementedPassengerServiceServer) Logout(context.Context, *emptypb.Empty) (*emptypb.Empty, error) {
+	return nil, status.Error(codes.Unimplemented, "method Logout not implemented")
 }
 func (UnimplementedPassengerServiceServer) CreateLostReport(context.Context, *CreateLostReportRequest) (*LostReport, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateLostReport not implemented")
@@ -181,6 +197,24 @@ func _PassengerService_Login_Handler(srv interface{}, ctx context.Context, dec f
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(PassengerServiceServer).Login(ctx, req.(*LoginRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _PassengerService_Logout_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PassengerServiceServer).Logout(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PassengerService_Logout_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PassengerServiceServer).Logout(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -285,6 +319,10 @@ var PassengerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Login",
 			Handler:    _PassengerService_Login_Handler,
+		},
+		{
+			MethodName: "Logout",
+			Handler:    _PassengerService_Logout_Handler,
 		},
 		{
 			MethodName: "CreateLostReport",

@@ -9,3 +9,5 @@ data:
   PASSENGER_GRPC_ADDR: ":50051"
   # API Gateway -> passenger-service gRPC address (cluster DNS name + port)
   PASSENGER_SERVICE_ADDRESS: "passenger-service:50051"
+  # API Gateway -> staff-service gRPC address (cluster DNS name + port)
+  STAFF_SERVICE_ADDRESS: "staff-service:50052"

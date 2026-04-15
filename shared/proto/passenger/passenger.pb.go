@@ -1231,9 +1231,10 @@ const file_passenger_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt2\x86\x05\n" +
+	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt2\xc0\x05\n" +
 	"\x10PassengerService\x12T\n" +
-	"\x05Login\x12$.smartfind.passenger.v1.LoginRequest\x1a%.smartfind.passenger.v1.LoginResponse\x12g\n" +
+	"\x05Login\x12$.smartfind.passenger.v1.LoginRequest\x1a%.smartfind.passenger.v1.LoginResponse\x128\n" +
+	"\x06Logout\x12\x16.google.protobuf.Empty\x1a\x16.google.protobuf.Empty\x12g\n" +
 	"\x10CreateLostReport\x12/.smartfind.passenger.v1.CreateLostReportRequest\x1a\".smartfind.passenger.v1.LostReport\x12r\n" +
 	"\x0fListLostReports\x12..smartfind.passenger.v1.ListLostReportsRequest\x1a/.smartfind.passenger.v1.ListLostReportsResponse\x12[\n" +
 	"\x10DeleteLostReport\x12/.smartfind.passenger.v1.DeleteLostReportRequest\x1a\x16.google.protobuf.Empty\x12\x87\x01\n" +
@@ -1284,19 +1285,21 @@ var file_passenger_proto_depIdxs = []int32{
 	13, // 10: smartfind.passenger.v1.ItemClaim.created_at:type_name -> google.protobuf.Timestamp
 	13, // 11: smartfind.passenger.v1.ItemClaim.updated_at:type_name -> google.protobuf.Timestamp
 	1,  // 12: smartfind.passenger.v1.PassengerService.Login:input_type -> smartfind.passenger.v1.LoginRequest
-	4,  // 13: smartfind.passenger.v1.PassengerService.CreateLostReport:input_type -> smartfind.passenger.v1.CreateLostReportRequest
-	5,  // 14: smartfind.passenger.v1.PassengerService.ListLostReports:input_type -> smartfind.passenger.v1.ListLostReportsRequest
-	7,  // 15: smartfind.passenger.v1.PassengerService.DeleteLostReport:input_type -> smartfind.passenger.v1.DeleteLostReportRequest
-	9,  // 16: smartfind.passenger.v1.PassengerService.SearchFoundItemMatches:input_type -> smartfind.passenger.v1.SearchFoundItemMatchesRequest
-	11, // 17: smartfind.passenger.v1.PassengerService.FileClaim:input_type -> smartfind.passenger.v1.FileClaimRequest
-	2,  // 18: smartfind.passenger.v1.PassengerService.Login:output_type -> smartfind.passenger.v1.LoginResponse
-	3,  // 19: smartfind.passenger.v1.PassengerService.CreateLostReport:output_type -> smartfind.passenger.v1.LostReport
-	6,  // 20: smartfind.passenger.v1.PassengerService.ListLostReports:output_type -> smartfind.passenger.v1.ListLostReportsResponse
-	14, // 21: smartfind.passenger.v1.PassengerService.DeleteLostReport:output_type -> google.protobuf.Empty
-	10, // 22: smartfind.passenger.v1.PassengerService.SearchFoundItemMatches:output_type -> smartfind.passenger.v1.SearchFoundItemMatchesResponse
-	12, // 23: smartfind.passenger.v1.PassengerService.FileClaim:output_type -> smartfind.passenger.v1.ItemClaim
-	18, // [18:24] is the sub-list for method output_type
-	12, // [12:18] is the sub-list for method input_type
+	14, // 13: smartfind.passenger.v1.PassengerService.Logout:input_type -> google.protobuf.Empty
+	4,  // 14: smartfind.passenger.v1.PassengerService.CreateLostReport:input_type -> smartfind.passenger.v1.CreateLostReportRequest
+	5,  // 15: smartfind.passenger.v1.PassengerService.ListLostReports:input_type -> smartfind.passenger.v1.ListLostReportsRequest
+	7,  // 16: smartfind.passenger.v1.PassengerService.DeleteLostReport:input_type -> smartfind.passenger.v1.DeleteLostReportRequest
+	9,  // 17: smartfind.passenger.v1.PassengerService.SearchFoundItemMatches:input_type -> smartfind.passenger.v1.SearchFoundItemMatchesRequest
+	11, // 18: smartfind.passenger.v1.PassengerService.FileClaim:input_type -> smartfind.passenger.v1.FileClaimRequest
+	2,  // 19: smartfind.passenger.v1.PassengerService.Login:output_type -> smartfind.passenger.v1.LoginResponse
+	14, // 20: smartfind.passenger.v1.PassengerService.Logout:output_type -> google.protobuf.Empty
+	3,  // 21: smartfind.passenger.v1.PassengerService.CreateLostReport:output_type -> smartfind.passenger.v1.LostReport
+	6,  // 22: smartfind.passenger.v1.PassengerService.ListLostReports:output_type -> smartfind.passenger.v1.ListLostReportsResponse
+	14, // 23: smartfind.passenger.v1.PassengerService.DeleteLostReport:output_type -> google.protobuf.Empty
+	10, // 24: smartfind.passenger.v1.PassengerService.SearchFoundItemMatches:output_type -> smartfind.passenger.v1.SearchFoundItemMatchesResponse
+	12, // 25: smartfind.passenger.v1.PassengerService.FileClaim:output_type -> smartfind.passenger.v1.ItemClaim
+	19, // [19:26] is the sub-list for method output_type
+	12, // [12:19] is the sub-list for method input_type
 	12, // [12:12] is the sub-list for extension type_name
 	12, // [12:12] is the sub-list for extension extendee
 	0,  // [0:12] is the sub-list for field type_name
