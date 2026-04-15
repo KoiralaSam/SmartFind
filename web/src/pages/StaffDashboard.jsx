@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   BarChart3,
+  Camera,
   CheckCircle2,
   Clock,
   ImagePlus,
@@ -13,9 +14,12 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "../context/useAuth";
+import {
+  staffCreateFoundItem,
+  staffListFoundItems,
+  staffUpdateFoundItemStatus,
+} from "../api/gateway";
 import AnalyticsPanel from "./AnalyticsPanel";
-
-const STORAGE_KEY = "smartfind-found-items";
 
 const CATEGORIES = [
   "Bags & Luggage",
@@ -31,22 +35,35 @@ const CATEGORIES = [
 
 const MAX_PHOTOS = 5;
 
-function loadItems() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveItems(items) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-}
-
 const field =
   "flex h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
+function mapFoundItemDTO(dto) {
+  if (!dto) return null;
+  const dateStr = dto.date_found ? String(dto.date_found).slice(0, 10) : "";
+  return {
+    id: dto.id,
+    itemName: dto.item_name,
+    description: dto.item_description || "",
+    category: dto.category || "",
+    itemType: dto.item_type || "",
+    brand: dto.brand || "",
+    model: dto.model || "",
+    color: dto.color || "",
+    material: dto.material || "",
+    itemCondition: dto.item_condition || "",
+    locationFound: dto.location_found || "",
+    routeOrStation: dto.route_or_station || "",
+    routeId: dto.route_id || "",
+    dateFound: dateStr,
+    status: dto.status || "unclaimed",
+    createdAt: dto.created_at || null,
+    updatedAt: dto.updated_at || null,
+    claimedAt: dto.status === "claimed" ? dto.updated_at || null : null,
+    image: null,
+    images: [],
+  };
+}
 
 // ─── Tab Button ──────────────────────────────────────────────
 function TabButton({ active, icon: Icon, label, count, onClick }) {
@@ -157,7 +174,9 @@ function ItemCard({ item, onClaim }) {
 export default function StaffDashboard() {
   const { user, logout } = useAuth();
   const [tab, setTab] = useState("dashboard");
-  const [items, setItems] = useState(loadItems);
+  const [items, setItems] = useState([]);
+  const [itemsLoading, setItemsLoading] = useState(false);
+  const [itemsError, setItemsError] = useState("");
 
   // Upload form state
   const [itemName, setItemName] = useState("");
@@ -175,41 +194,43 @@ export default function StaffDashboard() {
   // Editable fields pre-filled by AI
   const [editableDescription, setEditableDescription] = useState("");
   const [editableCategory, setEditableCategory] = useState("");
+  const [uploadError, setUploadError] = useState("");
+
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState(null);
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+
+  const refreshItems = useCallback(async () => {
+    if (!user?.id) return;
+    setItemsLoading(true);
+    setItemsError("");
+    try {
+      const payload = await staffListFoundItems({
+        postedByStaffId: user.id,
+        limit: 200,
+        offset: 0,
+      });
+      const next = (payload?.items || [])
+        .map(mapFoundItemDTO)
+        .filter(Boolean);
+      setItems(next);
+    } catch (err) {
+      setItemsError(err?.message || "Failed to load found items.");
+    } finally {
+      setItemsLoading(false);
+    }
+  }, [user?.id]);
 
   useEffect(() => {
-    saveItems(items);
-  }, [items]);
+    refreshItems();
+  }, [refreshItems]);
 
   const unclaimed = items.filter((i) => i.status === "unclaimed");
   const claimed = items.filter((i) => i.status === "claimed");
 
-  async function handleImageChange(e) {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-
-    // Enforce max photos limit
-    const slots = MAX_PHOTOS - photos.length;
-    const toAdd = files.slice(0, slots);
-    const isFirst = photos.length === 0;
-
-    // Read all selected files in parallel
-    const newPhotos = await Promise.all(
-      toAdd.map(
-        (file) =>
-          new Promise((resolve) => {
-            const reader = new FileReader();
-            reader.onload = (ev) =>
-              resolve({ id: crypto.randomUUID(), url: ev.target.result, data: ev.target.result });
-            reader.readAsDataURL(file);
-          }),
-      ),
-    );
-
-    setPhotos((prev) => [...prev, ...newPhotos]);
-
-    // Run AI extraction on the primary (first) photo only
-    if (isFirst && newPhotos.length > 0) {
-      const primary = newPhotos[0];
+  const runExtractionOnPrimary = useCallback(
+    async (primary) => {
       setExtracting(true);
       setExtractError(null);
       setExtractedDetails(null);
@@ -228,16 +249,134 @@ export default function StaffDashboard() {
           setItemName(data.item_name);
         }
         setEditableDescription(data.item_description || "");
-        setEditableCategory(data.category && data.category !== "unknown" ? data.category : "");
+        setEditableCategory(
+          data.category && data.category !== "unknown" ? data.category : "",
+        );
       } catch {
-        setExtractError("Could not extract details from image. You can still fill in the details manually.");
+        setExtractError(
+          "Could not extract details from image. You can still fill in the details manually.",
+        );
       } finally {
         setExtracting(false);
       }
-    }
+    },
+    [itemName],
+  );
 
-    // Reset the file input so the same file can be re-selected
+  const appendPhotos = useCallback(
+    async (newPhotoEntries) => {
+      if (!newPhotoEntries.length) return;
+      let toAdd = [];
+      let wasEmpty = false;
+      setPhotos((prev) => {
+        const slots = MAX_PHOTOS - prev.length;
+        toAdd = newPhotoEntries.slice(0, slots);
+        wasEmpty = prev.length === 0;
+        if (!toAdd.length) return prev;
+        return [...prev, ...toAdd];
+      });
+      if (!toAdd.length) return;
+      if (wasEmpty && toAdd.length > 0) {
+        await runExtractionOnPrimary(toAdd[0]);
+      }
+    },
+    [runExtractionOnPrimary],
+  );
+
+  async function handleImageChange(e) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    const slots = MAX_PHOTOS - photos.length;
+    const toRead = files.slice(0, slots);
+
+    const newPhotos = await Promise.all(
+      toRead.map(
+        (file) =>
+          new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (ev) =>
+              resolve({
+                id: crypto.randomUUID(),
+                url: ev.target.result,
+                data: ev.target.result,
+              });
+            reader.readAsDataURL(file);
+          }),
+      ),
+    );
+
+    await appendPhotos(newPhotos);
     e.target.value = "";
+  }
+
+  useEffect(() => {
+    if (!cameraOpen) return undefined;
+
+    let cancelled = false;
+    let stream = null;
+
+    (async () => {
+      setCameraError(null);
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = stream;
+          await video.play();
+        }
+      } catch {
+        if (!cancelled) {
+          setCameraError(
+            "Could not access the camera. Allow permission or use file upload.",
+          );
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+      const video = videoRef.current;
+      if (video) video.srcObject = null;
+    };
+  }, [cameraOpen]);
+
+  function closeCamera() {
+    setCameraOpen(false);
+    setCameraError(null);
+  }
+
+  async function captureFromCamera() {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) return;
+    const w = video.videoWidth;
+    const h = video.videoHeight;
+    if (!w || !h) return;
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0);
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    const entry = {
+      id: crypto.randomUUID(),
+      url: dataUrl,
+      data: dataUrl,
+    };
+    await appendPhotos([entry]);
+    closeCamera();
   }
 
   function removePhoto(id) {
@@ -255,30 +394,61 @@ export default function StaffDashboard() {
   }
 
   const handleUpload = useCallback(
-    (e) => {
+    async (e) => {
       e.preventDefault();
       if (photos.length === 0) return;
-      const newItem = {
-        id: crypto.randomUUID(),
-        itemName: itemName.trim(),
-        description: editableDescription || extractedDetails?.item_description || "",
-        category: editableCategory || extractedDetails?.category || "",
-        itemType: extractedDetails?.item_type || "",
-        brand: extractedDetails?.brand || "",
-        model: extractedDetails?.model || "",
-        color: extractedDetails?.color || "",
-        material: extractedDetails?.material || "",
-        itemCondition: extractedDetails?.item_condition || "",
-        locationFound: locationFound.trim(),
-        routeOrStation: routeOrStation.trim(),
-        dateFound: dateFound || new Date().toISOString().split("T")[0],
-        image: photos[0]?.url || null,      // primary photo for the card thumbnail
-        images: photos.map((p) => p.url),   // all photos
-        status: "unclaimed",
-        postedBy: user?.email || "staff",
-        createdAt: new Date().toISOString(),
-      };
-      setItems((prev) => [newItem, ...prev]);
+      if (!user?.id) return;
+      setUploadError("");
+
+      const dateISO = dateFound
+        ? new Date(`${dateFound}T00:00:00Z`).toISOString()
+        : undefined;
+
+      try {
+        const created = await staffCreateFoundItem({
+          staff_id: user.id,
+          item_name: itemName.trim(),
+          item_description:
+            editableDescription ||
+            extractedDetails?.item_description ||
+            "",
+          item_type: extractedDetails?.item_type || "",
+          brand: extractedDetails?.brand || "",
+          model: extractedDetails?.model || "",
+          color: extractedDetails?.color || "",
+          material: extractedDetails?.material || "",
+          item_condition: extractedDetails?.item_condition || "",
+          category: editableCategory || extractedDetails?.category || "",
+          location_found: locationFound.trim(),
+          route_or_station: routeOrStation.trim(),
+          route_id: "",
+          date_found: dateISO,
+        });
+
+        const mapped = mapFoundItemDTO(created) || {
+          id: crypto.randomUUID(),
+          itemName: itemName.trim(),
+          description:
+            editableDescription ||
+            extractedDetails?.item_description ||
+            "",
+          category: editableCategory || extractedDetails?.category || "",
+          locationFound: locationFound.trim(),
+          routeOrStation: routeOrStation.trim(),
+          dateFound,
+          status: "unclaimed",
+          image: photos[0]?.url || null,
+          images: photos.map((p) => p.url),
+        };
+        mapped.image = photos[0]?.url || mapped.image || null;
+        mapped.images = photos.map((p) => p.url);
+
+        setItems((prev) => [mapped, ...prev]);
+      } catch (err) {
+        setUploadError(err?.message || "Failed to upload item.");
+        return;
+      }
+
       setItemName("");
       setLocationFound("");
       setRouteOrStation("");
@@ -294,15 +464,25 @@ export default function StaffDashboard() {
     [itemName, locationFound, routeOrStation, dateFound, photos, user, extractedDetails, editableDescription, editableCategory],
   );
 
-  const handleClaim = useCallback((id) => {
-    setItems((prev) =>
-      prev.map((item) =>
-        item.id === id
-          ? { ...item, status: "claimed", claimedAt: new Date().toISOString() }
-          : item,
-      ),
-    );
-  }, []);
+  const handleClaim = useCallback(
+    async (id) => {
+      if (!user?.id) return;
+      try {
+        const updated = await staffUpdateFoundItemStatus({
+          staff_id: user.id,
+          found_item_id: id,
+          status: "claimed",
+        });
+        const mapped = mapFoundItemDTO(updated);
+        setItems((prev) =>
+          prev.map((item) => (item.id === id ? { ...item, ...(mapped || {}) } : item)),
+        );
+      } catch (err) {
+        setItemsError(err?.message || "Failed to update item status.");
+      }
+    },
+    [user?.id],
+  );
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-muted/40 to-background">
@@ -378,6 +558,19 @@ export default function StaffDashboard() {
 
       {/* ─── Content ────────────────────────────────────────── */}
       <main className="mx-auto max-w-5xl px-4 py-8">
+        {itemsError ? (
+          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+            {itemsError}{" "}
+            <button
+              type="button"
+              onClick={refreshItems}
+              className="ml-2 font-medium text-foreground underline underline-offset-2"
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
+
         {/* Dashboard */}
         {tab === "dashboard" && (
           <div className="space-y-8">
@@ -417,7 +610,11 @@ export default function StaffDashboard() {
             {/* Recent items preview */}
             <div>
               <h2 className="mb-3 text-sm font-semibold">Recent Items</h2>
-              {items.length === 0 ? (
+              {itemsLoading ? (
+                <div className="rounded-2xl border border-border bg-card p-8 text-center">
+                  <p className="text-sm text-muted-foreground">Loading items…</p>
+                </div>
+              ) : items.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
                   <Package className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" />
                   <p className="text-sm text-muted-foreground">
@@ -476,6 +673,11 @@ export default function StaffDashboard() {
                 Item uploaded successfully! It is now listed as unclaimed.
               </div>
             )}
+            {uploadError ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+                {uploadError}
+              </div>
+            ) : null}
 
             <form onSubmit={handleUpload} className="space-y-5">
               <div className="space-y-2">
@@ -547,55 +749,128 @@ export default function StaffDashboard() {
                   </span>
                 </div>
 
-                <div className="flex flex-wrap gap-3">
-                  {/* Thumbnail grid */}
-                  {photos.map((photo, idx) => (
-                    <div key={photo.id} className="relative">
-                      <img
-                        src={photo.url}
-                        alt={`Photo ${idx + 1}`}
-                        className="h-20 w-20 rounded-xl border border-border object-cover"
-                      />
-                      {/* Primary badge */}
-                      {idx === 0 && (
-                        <span className="absolute bottom-1 left-1 rounded-md bg-foreground/80 px-1.5 py-0.5 text-[9px] font-semibold text-background">
-                          Primary
+                <div className="space-y-3">
+                  <div className="flex flex-wrap gap-3">
+                    {photos.map((photo, idx) => (
+                      <div key={photo.id} className="relative">
+                        <img
+                          src={photo.url}
+                          alt={`Photo ${idx + 1}`}
+                          className="h-20 w-20 rounded-xl border border-border object-cover"
+                        />
+                        {idx === 0 && (
+                          <span className="absolute bottom-1 left-1 rounded-md bg-foreground/80 px-1.5 py-0.5 text-[9px] font-semibold text-background">
+                            Primary
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removePhoto(photo.id)}
+                          className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm transition hover:opacity-90"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {photos.length < MAX_PHOTOS && (
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+                      <label
+                        htmlFor="item-image"
+                        className="flex min-h-[5rem] flex-1 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border bg-muted/30 px-3 transition hover:border-muted-foreground/40 hover:bg-muted/50"
+                      >
+                        <ImagePlus className="h-5 w-5 text-muted-foreground/50" />
+                        <span className="text-center text-[10px] text-muted-foreground">
+                          {photos.length === 0
+                            ? "Upload from gallery"
+                            : "Add from gallery"}
                         </span>
-                      )}
+                        <input
+                          id="item-image"
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          className="hidden"
+                          onChange={handleImageChange}
+                        />
+                      </label>
                       <button
                         type="button"
-                        onClick={() => removePhoto(photo.id)}
-                        className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm transition hover:opacity-90"
+                        onClick={() => setCameraOpen(true)}
+                        disabled={extracting}
+                        className="flex min-h-[5rem] shrink-0 flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border bg-muted/30 px-4 transition hover:border-muted-foreground/40 hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-36"
                       >
-                        <X className="h-3 w-3" />
+                        <Camera className="h-5 w-5 text-muted-foreground/50" />
+                        <span className="text-[10px] text-muted-foreground">
+                          Take photo
+                        </span>
                       </button>
                     </div>
-                  ))}
-
-                  {/* Add more / initial upload button */}
-                  {photos.length < MAX_PHOTOS && (
-                    <label
-                      htmlFor="item-image"
-                      className={`flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border bg-muted/30 transition hover:border-muted-foreground/40 hover:bg-muted/50 ${
-                        photos.length === 0 ? "h-20 w-full" : "h-20 w-20"
-                      }`}
-                    >
-                      <ImagePlus className="h-5 w-5 text-muted-foreground/50" />
-                      <span className="text-[10px] text-muted-foreground">
-                        {photos.length === 0 ? "Click to upload photos" : "Add more"}
-                      </span>
-                      <input
-                        id="item-image"
-                        type="file"
-                        accept="image/*"
-                        multiple
-                        className="hidden"
-                        onChange={handleImageChange}
-                      />
-                    </label>
                   )}
                 </div>
               </div>
+
+              {cameraOpen && (
+                <div
+                  className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="camera-dialog-title"
+                >
+                  <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-background shadow-lg">
+                    <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                      <h2
+                        id="camera-dialog-title"
+                        className="text-sm font-semibold"
+                      >
+                        Take a photo
+                      </h2>
+                      <button
+                        type="button"
+                        onClick={closeCamera}
+                        className="rounded-lg p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                        aria-label="Close camera"
+                      >
+                        <X className="h-5 w-5" />
+                      </button>
+                    </div>
+                    <div className="space-y-3 p-4">
+                      <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl bg-black">
+                        <video
+                          ref={videoRef}
+                          playsInline
+                          muted
+                          className="h-full w-full object-cover"
+                        />
+                        {cameraError && (
+                          <div className="absolute inset-0 flex items-center justify-center bg-black/70 p-4 text-center text-sm text-white">
+                            {cameraError}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={captureFromCamera}
+                          disabled={!!cameraError}
+                          className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-foreground px-4 py-2.5 text-sm font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Camera className="h-4 w-4" />
+                          Use photo
+                        </button>
+                        <button
+                          type="button"
+                          onClick={closeCamera}
+                          className="rounded-xl border border-border px-4 py-2.5 text-sm font-medium transition hover:bg-muted"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* ── AI Extraction Status ──────────────────────── */}
               {extracting && (

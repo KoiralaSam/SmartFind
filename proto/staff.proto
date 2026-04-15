@@ -1,0 +1,162 @@
+syntax = "proto3";
+
+package smartfind.staff.v1;
+
+option go_package = "smartfind/proto;smartfindpb";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+service StaffService {
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc CreateStaff(CreateStaffRequest) returns (Staff);
+
+  rpc CreateFoundItem(CreateFoundItemRequest) returns (FoundItem);
+  rpc UpdateFoundItemStatus(UpdateFoundItemStatusRequest) returns (FoundItem);
+  rpc ListFoundItems(ListFoundItemsRequest) returns (ListFoundItemsResponse);
+
+  rpc ListClaims(ListClaimsRequest) returns (ListClaimsResponse);
+  rpc ReviewClaim(ReviewClaimRequest) returns (ItemClaim);
+
+  rpc CreateRoute(CreateRouteRequest) returns (Route);
+  rpc DeleteRoute(DeleteRouteRequest) returns (google.protobuf.Empty);
+  rpc ListRoutes(ListRoutesRequest) returns (ListRoutesResponse);
+}
+
+message Staff {
+  string id = 1;
+  string full_name = 2;
+  string email = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message LoginRequest {
+  string email = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  Staff staff = 1;
+  string session_token = 2;
+}
+
+message CreateStaffRequest {
+  string transit_code = 1;
+  string full_name = 2;
+  string email = 3;
+  string password = 4;
+}
+
+message FoundItem {
+  string id = 1;
+  string posted_by_staff_id = 2;
+  string item_name = 3;
+  string item_description = 4;
+  string item_type = 5;
+  string brand = 6;
+  string model = 7;
+  string color = 8;
+  string material = 9;
+  string item_condition = 10;
+  string category = 11;
+  string location_found = 12;
+  string route_or_station = 13;
+  string route_id = 14;
+  google.protobuf.Timestamp date_found = 15;
+  string status = 16;
+  google.protobuf.Timestamp created_at = 17;
+  google.protobuf.Timestamp updated_at = 18;
+}
+
+message CreateFoundItemRequest {
+  string staff_id = 1;
+  string item_name = 2;
+  string item_description = 3;
+  string item_type = 4;
+  string brand = 5;
+  string model = 6;
+  string color = 7;
+  string material = 8;
+  string item_condition = 9;
+  string category = 10;
+  string location_found = 11;
+  string route_or_station = 12;
+  string route_id = 13;
+  google.protobuf.Timestamp date_found = 14;
+}
+
+message UpdateFoundItemStatusRequest {
+  string staff_id = 1;
+  string found_item_id = 2;
+  string status = 3;
+}
+
+message ListFoundItemsRequest {
+  string status = 1;
+  string route_id = 2;
+  string posted_by_staff_id = 3;
+  int32 limit = 4;
+  int32 offset = 5;
+}
+
+message ListFoundItemsResponse {
+  repeated FoundItem items = 1;
+}
+
+message ItemClaim {
+  string id = 1;
+  string item_id = 2;
+  string claimant_passenger_id = 3;
+  string lost_report_id = 4;
+  string message = 5;
+  string status = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message ListClaimsRequest {
+  string status = 1;
+  string item_id = 2;
+  string passenger_id = 3;
+  int32 limit = 4;
+  int32 offset = 5;
+}
+
+message ListClaimsResponse {
+  repeated ItemClaim claims = 1;
+}
+
+message ReviewClaimRequest {
+  string staff_id = 1;
+  string claim_id = 2;
+  string decision = 3;
+}
+
+message Route {
+  string id = 1;
+  string route_name = 2;
+  string created_by_staff_id = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message CreateRouteRequest {
+  string staff_id = 1;
+  string route_name = 2;
+}
+
+message DeleteRouteRequest {
+  string staff_id = 1;
+  string route_id = 2;
+}
+
+message ListRoutesRequest {
+  string created_by_staff_id = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message ListRoutesResponse {
+  repeated Route routes = 1;
+}

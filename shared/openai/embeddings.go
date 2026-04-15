@@ -20,6 +20,8 @@ const (
 	embeddingDims = 1536
 )
 
+var defaultHTTPClient = &http.Client{Timeout: 20 * time.Second}
+
 type embeddingsRequest struct {
 	Model string `json:"model"`
 	Input string `json:"input"`
@@ -66,8 +68,7 @@ func EmbedText(ctx context.Context, text string) ([]float32, error) {
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 20 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := defaultHTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

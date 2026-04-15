@@ -92,7 +92,7 @@ echo "Migrations completed."
 )
 
 k8s_resource("web", port_forwards=5173, labels="frontend", resource_deps=["db-migrate"])
-k8s_resource("api-gateway", port_forwards=8081, labels="services", resource_deps=["passenger-service"])
+k8s_resource("api-gateway", port_forwards=8081, labels="services", resource_deps=["passenger-service", "staff-service"])
 k8s_resource("chat-agent", port_forwards=8090, labels="services", resource_deps=["db-migrate"])
 k8s_resource("detail-extracter-agent", port_forwards=8091, labels="services", resource_deps=["db-migrate"])
 k8s_resource("predictive-analytics-agent", port_forwards=8092, labels="services", resource_deps=["db-migrate"])

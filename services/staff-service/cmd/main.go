@@ -9,10 +9,11 @@ import (
 	"syscall"
 	"time"
 
+	staffgrpc "smartfind/services/staff-service/internal/adapters/primary/grpc"
+	"smartfind/services/staff-service/internal/adapters/secondary/postgres"
+	"smartfind/services/staff-service/internal/service"
 	"smartfind/shared/db"
 	"smartfind/shared/env"
-
-	"google.golang.org/grpc"
 )
 
 func main() {
@@ -34,7 +35,9 @@ func main() {
 		}
 	}()
 
-	grpcServer := grpc.NewServer()
+	repo := postgres.NewStaffRepository(db.Pool)
+	usecase := service.NewStaffService(repo)
+	grpcServer := staffgrpc.NewServer(usecase)
 
 	lis, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
