@@ -18,6 +18,13 @@ spec:
         - name: staff-service
           image: smartfind/staff-service
           imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
           ports:
             - containerPort: 50052
               name: grpc
@@ -34,6 +41,21 @@ spec:
                 secretKeyRef:
                   name: openai-api-key
                   key: OPENAI_API_KEY
+            - name: TRANSIT_CODE
+              valueFrom:
+                secretKeyRef:
+                  name: staff-service-secrets
+                  key: TRANSIT_CODE
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: staff-service-secrets
+                  key: JWT_SECRET
+            - name: JWT_TTL_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: staff-service-secrets
+                  key: JWT_TTL_SECONDS
           readinessProbe:
             tcpSocket:
               port: grpc
@@ -59,4 +81,3 @@ spec:
       port: 50052
       targetPort: grpc
   type: ClusterIP
-

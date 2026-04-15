@@ -38,15 +38,20 @@ generate-proto-python:
 		echo "install with: pip install grpcio-tools"; \
 		exit 1; \
 	}; \
-	out_dir="$(PROTO_PY_OUT_DIR)/$$name"; \
-	mkdir -p "$$out_dir"; \
-	touch out_dir; \
-	"$(PYTHON)" -m grpc_tools.protoc \
-		-I"$(PROTO_DIR)" \
-		--python_out="$(PROTO_PY_OUT_DIR)" \
-		--pyi_out="$(PROTO_PY_OUT_DIR)" \
-		--grpc_python_out="$(PROTO_PY_OUT_DIR)" \
-		$(PROTO_SRC)
+	mkdir -p "$(PROTO_PY_OUT_DIR)"; \
+	touch "$(PROTO_PY_OUT_DIR)/__init__.py"; \
+	for proto in $(PROTO_SRC); do \
+		name=$$(basename "$$proto" .proto); \
+		out_dir="$(PROTO_PY_OUT_DIR)/$$name"; \
+		mkdir -p "$$out_dir"; \
+		touch "$$out_dir/__init__.py"; \
+		"$(PYTHON)" -m grpc_tools.protoc \
+			-I"$(PROTO_DIR)" \
+			--python_out="$$out_dir" \
+			--pyi_out="$$out_dir" \
+			--grpc_python_out="$$out_dir" \
+			"$$proto"; \
+	done
 
 generate-proto-all: generate-proto generate-proto-python
 

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
@@ -115,17 +116,34 @@ func (s *StaffService) CreateStaff(ctx context.Context, in inbound.CreateStaffIn
 }
 
 func validTransitCode(code string) bool {
-	code = strings.TrimSpace(code)
+	code = normalizeTransitCode(code)
 	if code == "" {
 		return false
 	}
 	raw := env.GetString("TRANSIT_CODE", defaultTransitCodes)
-	for _, part := range strings.Split(raw, ",") {
-		if strings.TrimSpace(part) == code {
-			return true
-		}
+	if code == raw {
+		return true
 	}
 	return false
+}
+
+func normalizeTransitCode(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	return strings.Map(func(r rune) rune {
+		switch r {
+		// strip common zero-width characters sometimes introduced by copy/paste
+		case '\u200B', '\u200C', '\u200D', '\uFEFF':
+			return -1
+		// normalize common "dash" characters to ASCII hyphen-minus
+		case '–', '—', '−', '‐', '‑', '‒', '﹣', '－':
+			return '-'
+		default:
+			return r
+		}
+	}, s)
 }
 
 func toInboundStaff(d *domain.Staff) *inbound.Staff {
@@ -146,19 +164,20 @@ func (s *StaffService) CreateFoundItem(ctx context.Context, in inbound.CreateFou
 		return nil, errors.New("staff_id and item_name are required")
 	}
 
+	embedding, err := openai.EmbedText(ctx, buildFoundItemEmbeddingText(in))
+	if err != nil {
+		return nil, err
+	}
+
 	created, err := s.repo.CreateFoundItem(ctx, in)
 	if err != nil {
 		return nil, err
 	}
 
-	embedding, err := openai.EmbedText(ctx, buildFoundItemEmbeddingText(in))
-	if err != nil {
-		_ = s.repo.DeleteFoundItem(ctx, created.ID)
-		return nil, err
-	}
-
 	if err := s.repo.UpsertFoundItemEmbedding(ctx, created.ID, embedding); err != nil {
-		_ = s.repo.DeleteFoundItem(ctx, created.ID)
+		if cleanupErr := s.repo.DeleteFoundItem(ctx, created.ID); cleanupErr != nil {
+			log.Printf("rollback delete found_item_id=%s failed: %v", created.ID, cleanupErr)
+		}
 		return nil, err
 	}
 
