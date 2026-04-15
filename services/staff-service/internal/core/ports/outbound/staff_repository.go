@@ -23,6 +23,8 @@ type StaffRepository interface {
 	Create(ctx context.Context, staff domain.Staff) (*domain.Staff, error)
 
 	CreateFoundItem(ctx context.Context, in inbound.CreateFoundItemInput) (*inbound.FoundItem, error)
+	DeleteFoundItem(ctx context.Context, foundItemID string) error
+	UpsertFoundItemEmbedding(ctx context.Context, foundItemID string, embedding []float32) error
 	UpdateFoundItemStatus(ctx context.Context, foundItemID, staffID, status string) (*inbound.FoundItem, error)
 	ListFoundItems(ctx context.Context, in inbound.ListFoundItemsInput) ([]inbound.FoundItem, error)
 

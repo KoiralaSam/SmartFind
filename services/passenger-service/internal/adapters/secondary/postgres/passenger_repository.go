@@ -11,6 +11,7 @@ import (
 	"smartfind/services/passenger-service/internal/core/domain"
 	"smartfind/services/passenger-service/internal/core/ports/inbound"
 	"smartfind/services/passenger-service/internal/core/ports/outbound"
+	"smartfind/shared/pgvector"
 )
 
 type PassengerRepository struct {
@@ -203,11 +204,32 @@ func (r *PassengerRepository) SearchFoundItemMatches(ctx context.Context, passen
 	}
 
 	// Prefer vector similarity search when embeddings are available; fall back to simple filtering otherwise.
-	out, err := r.searchFoundItemMatchesVector(ctx, passengerID, lostReportID, limit)
+	vecMatches, err := pgvector.SearchFoundItemMatches(ctx, r.pool, lostReportID, passengerID, limit)
 	if err != nil {
 		return nil, err
 	}
-	if len(out) > 0 {
+	if len(vecMatches) > 0 {
+		out := make([]inbound.FoundItemMatch, 0, len(vecMatches))
+		for _, vm := range vecMatches {
+			out = append(out, inbound.FoundItemMatch{
+				FoundItemID:     vm.FoundItemID,
+				ItemName:        vm.ItemName,
+				ItemDescription: vm.ItemDescription,
+				ItemType:        vm.ItemType,
+				Brand:           vm.Brand,
+				Model:           vm.Model,
+				Color:           vm.Color,
+				Material:        vm.Material,
+				ItemCondition:   vm.ItemCondition,
+				Category:        vm.Category,
+				LocationFound:   vm.LocationFound,
+				RouteOrStation:  vm.RouteOrStation,
+				RouteID:         vm.RouteID,
+				DateFound:       vm.DateFound,
+				Status:          vm.Status,
+				SimilarityScore: vm.SimilarityScore,
+			})
+		}
 		return out, nil
 	}
 
@@ -227,7 +249,7 @@ func (r *PassengerRepository) SearchFoundItemMatches(ctx context.Context, passen
 	}
 	defer rows.Close()
 
-	out = make([]inbound.FoundItemMatch, 0)
+	out := make([]inbound.FoundItemMatch, 0)
 	for rows.Next() {
 		var m inbound.FoundItemMatch
 		var routeID string

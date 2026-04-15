@@ -47,7 +47,7 @@ func (r *StaffRepository) CreateFoundItem(ctx context.Context, in inbound.Create
 			status::text, created_at, updated_at
 	`, in.StaffID,
 		in.ItemName, in.ItemDescription, in.ItemType, in.Brand, in.Model, in.Color, in.Material, in.ItemCondition,
-		"", in.LocationFound, in.RouteOrStation, in.RouteID, dateArg,
+		in.Category, in.LocationFound, in.RouteOrStation, in.RouteID, dateArg,
 		now, now,
 	).Scan(
 		&it.ID, &it.PostedByStaffID,
