@@ -12,6 +12,7 @@ import (
 	"smartfind/services/staff-service/internal/core/ports/outbound"
 	"smartfind/shared/env"
 	"smartfind/shared/jwt"
+	"smartfind/shared/openai"
 )
 
 var foundItemStatuses = map[string]struct{}{
@@ -144,7 +145,24 @@ func (s *StaffService) CreateFoundItem(ctx context.Context, in inbound.CreateFou
 	if strings.TrimSpace(in.StaffID) == "" || strings.TrimSpace(in.ItemName) == "" {
 		return nil, errors.New("staff_id and item_name are required")
 	}
-	return s.repo.CreateFoundItem(ctx, in)
+
+	created, err := s.repo.CreateFoundItem(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+
+	embedding, err := openai.EmbedText(ctx, buildFoundItemEmbeddingText(in))
+	if err != nil {
+		_ = s.repo.DeleteFoundItem(ctx, created.ID)
+		return nil, err
+	}
+
+	if err := s.repo.UpsertFoundItemEmbedding(ctx, created.ID, embedding); err != nil {
+		_ = s.repo.DeleteFoundItem(ctx, created.ID)
+		return nil, err
+	}
+
+	return created, nil
 }
 
 func (s *StaffService) UpdateFoundItemStatus(ctx context.Context, in inbound.UpdateFoundItemStatusInput) (*inbound.FoundItem, error) {
@@ -222,4 +240,30 @@ func validClaimStatusFilter(s string) bool {
 	default:
 		return false
 	}
+}
+
+func buildFoundItemEmbeddingText(in inbound.CreateFoundItemInput) string {
+	parts := []string{
+		in.ItemName,
+		in.ItemDescription,
+		in.ItemType,
+		in.Brand,
+		in.Model,
+		in.Color,
+		in.Material,
+		in.ItemCondition,
+		in.Category,
+		in.LocationFound,
+		in.RouteOrStation,
+		in.RouteID,
+	}
+
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		t := strings.TrimSpace(p)
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return strings.Join(out, " | ")
 }

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -11,6 +12,7 @@ import (
 
 	"smartfind/services/staff-service/internal/core/domain"
 	"smartfind/services/staff-service/internal/core/ports/outbound"
+	"smartfind/shared/pgvector"
 )
 
 type StaffRepository struct {
@@ -61,6 +63,39 @@ func (r *StaffRepository) Create(ctx context.Context, staff domain.Staff) (*doma
 		return nil, err
 	}
 	return &staff, nil
+}
+
+func (r *StaffRepository) DeleteFoundItem(ctx context.Context, foundItemID string) error {
+	if strings.TrimSpace(foundItemID) == "" {
+		return errors.New("foundItemID is required")
+	}
+	// Best-effort cleanup of the embeddings table (no FK exists there today).
+	_, _ = r.pool.Exec(ctx, `
+		DELETE FROM found_item_embeddings
+		WHERE found_item_id = NULLIF($1, '')::uuid
+	`, foundItemID)
+	_, err := r.pool.Exec(ctx, `
+		DELETE FROM found_items
+		WHERE id = NULLIF($1, '')::uuid
+	`, foundItemID)
+	return err
+}
+
+func (r *StaffRepository) UpsertFoundItemEmbedding(ctx context.Context, foundItemID string, embedding []float32) error {
+	if strings.TrimSpace(foundItemID) == "" {
+		return errors.New("foundItemID is required")
+	}
+	if len(embedding) != 1536 {
+		return errors.New("embedding must have 1536 dimensions")
+	}
+	vecLit := pgvector.Literal(embedding)
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO found_item_embeddings (found_item_id, embedding)
+		VALUES (NULLIF($1, '')::uuid, $2::vector)
+		ON CONFLICT (found_item_id) DO UPDATE
+		SET embedding = EXCLUDED.embedding
+	`, foundItemID, vecLit)
+	return err
 }
 
 func nullIfEmpty(s string) any {

@@ -38,12 +38,19 @@ docker_build(
   dockerfile="./infra/development/docker/passenger-service.Dockerfile",
 )
 
+docker_build(
+  "smartfind/staff-service",
+  ".",
+  dockerfile="./infra/development/docker/staff-service.Dockerfile",
+)
+
 k8s_yaml("./infra/development/k8s/web-deployment.yaml")
 k8s_yaml("./infra/development/k8s/api-gateway-deployment.yaml")
 k8s_yaml("./infra/development/k8s/chat-agent-deployment.yaml")
 k8s_yaml("./infra/development/k8s/detail-extracter-agent-deployment.yaml")
 k8s_yaml("./infra/development/k8s/predictive-analytics-agent-deployment.yaml")
 k8s_yaml("./infra/development/k8s/passenger-service-deployment.yaml")
+k8s_yaml("./infra/development/k8s/staff-service-deployment.yaml")
 k8s_resource("postgres", port_forwards=5432, labels="infrastructure")
 
 local_resource(
@@ -90,3 +97,4 @@ k8s_resource("chat-agent", port_forwards=8090, labels="services", resource_deps=
 k8s_resource("detail-extracter-agent", port_forwards=8091, labels="services", resource_deps=["db-migrate"])
 k8s_resource("predictive-analytics-agent", port_forwards=8092, labels="services", resource_deps=["db-migrate"])
 k8s_resource("passenger-service", port_forwards=50051, labels="services", resource_deps=["db-migrate"])
+k8s_resource("staff-service", port_forwards=50052, labels="services", resource_deps=["db-migrate"])
