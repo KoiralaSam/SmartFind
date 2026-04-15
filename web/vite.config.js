@@ -10,7 +10,8 @@ export default defineConfig({
     proxy: {
       "/api/test-extract": {
         target: process.env.DETAIL_EXTRACTER_URL || "http://localhost:8091",
-        rewrite: (path) => path.replace(/^\/api\/test-extract/, "/test-extract"),
+        rewrite: (path) =>
+          path.replace(/^\/api\/test-extract/, "/test-extract"),
         changeOrigin: true,
       },
       "/api/extract": {
