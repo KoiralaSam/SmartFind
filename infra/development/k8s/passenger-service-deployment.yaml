@@ -47,6 +47,11 @@ spec:
                 secretKeyRef:
                   name: passenger-service-secrets
                   key: JWT_TTL_SECONDS
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openai-api-key
+                  key: OPENAI_API_KEY
           readinessProbe:
             tcpSocket:
               port: grpc
@@ -72,4 +77,3 @@ spec:
       port: 50051
       targetPort: grpc
   type: ClusterIP
-

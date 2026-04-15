@@ -15,6 +15,7 @@ type PassengerRepository interface {
 	Update(ctx context.Context, passenger domain.Passenger) error
 
 	CreateLostReport(ctx context.Context, report inbound.LostReport) (*inbound.LostReport, error)
+	UpsertLostReportEmbedding(ctx context.Context, lostReportID string, embedding []float32) error
 	ListLostReports(ctx context.Context, passengerID string, status string) ([]inbound.LostReport, error)
 	DeleteLostReport(ctx context.Context, passengerID string, lostReportID string) error
 

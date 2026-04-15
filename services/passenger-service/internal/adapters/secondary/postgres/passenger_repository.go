@@ -184,8 +184,6 @@ func (r *PassengerRepository) DeleteLostReport(ctx context.Context, passengerID 
 }
 
 func (r *PassengerRepository) SearchFoundItemMatches(ctx context.Context, passengerID string, lostReportID string, limit int) ([]inbound.FoundItemMatch, error) {
-	_ = passengerID
-
 	if limit <= 0 {
 		limit = 10
 	}
@@ -195,8 +193,8 @@ func (r *PassengerRepository) SearchFoundItemMatches(ctx context.Context, passen
 	err := r.pool.QueryRow(ctx, `
 		SELECT category, item_name
 		FROM lost_reports
-		WHERE id = $1
-	`, lostReportID).Scan(&category, &itemName)
+		WHERE id = $1 AND reporter_passenger_id = $2
+	`, lostReportID, passengerID).Scan(&category, &itemName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return []inbound.FoundItemMatch{}, nil
 	}
@@ -204,9 +202,18 @@ func (r *PassengerRepository) SearchFoundItemMatches(ctx context.Context, passen
 		return nil, err
 	}
 
+	// Prefer vector similarity search when embeddings are available; fall back to simple filtering otherwise.
+	out, err := r.searchFoundItemMatchesVector(ctx, passengerID, lostReportID, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) > 0 {
+		return out, nil
+	}
+
 	rows, err := r.pool.Query(ctx, `
 		SELECT
-			id,
+			id::text,
 			item_name, item_description, item_type, brand, model, color, material, item_condition,
 			category, location_found, route_or_station, COALESCE(route_id::text, ''), date_found,
 			status
@@ -220,7 +227,7 @@ func (r *PassengerRepository) SearchFoundItemMatches(ctx context.Context, passen
 	}
 	defer rows.Close()
 
-	out := make([]inbound.FoundItemMatch, 0)
+	out = make([]inbound.FoundItemMatch, 0)
 	for rows.Next() {
 		var m inbound.FoundItemMatch
 		var routeID string
@@ -270,4 +277,3 @@ func (r *PassengerRepository) CreateItemClaim(ctx context.Context, claim inbound
 	}
 	return &claim, nil
 }
-
