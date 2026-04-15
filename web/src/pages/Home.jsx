@@ -156,7 +156,7 @@ export default function Home() {
           {/* Passenger panel */}
           {user?.role === "passenger" ? (
             <Link
-              to="/passenger"
+              to="/passenger/chat"
               className="group flex min-h-[45vh] flex-col justify-center bg-black/15 p-8 transition hover:bg-black/30 md:min-h-[calc(100vh-3.5rem)] md:p-12 lg:p-16"
             >
               <div className="mx-auto w-full max-w-md">

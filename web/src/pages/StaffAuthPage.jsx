@@ -42,7 +42,7 @@ export default function StaffAuthPage() {
     return <Navigate to="/staff" replace />;
   }
   if (user?.role === "passenger") {
-    return <Navigate to="/passenger" replace />;
+    return <Navigate to="/passenger/chat" replace />;
   }
 
   async function handleLogin(e) {
@@ -84,16 +84,16 @@ export default function StaffAuthPage() {
   }
 
   return (
-    <div className="relative min-h-screen">
+    <div className="relative min-h-dvh">
       <img
         src={STAFF_AUTH_IMAGE}
         alt=""
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+        className="pointer-events-none absolute inset-0 h-full min-h-dvh w-full object-cover"
         loading="eager"
         decoding="async"
       />
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
+        className="absolute inset-0 min-h-dvh bg-black/50 backdrop-blur-[2px]"
         aria-hidden
       />
 
@@ -105,8 +105,8 @@ export default function StaffAuthPage() {
         Back to home
       </Link>
 
-      <div className="relative z-10 flex min-h-screen items-center justify-center px-4 py-16 sm:px-6 sm:py-12">
-        <div className="w-full max-w-md rounded-2xl border border-border/80 bg-background/95 p-8 shadow-2xl backdrop-blur-sm sm:p-10">
+      <div className="relative z-10 flex min-h-dvh items-center justify-center px-4 py-6 sm:px-6 sm:py-10">
+        <div className="my-auto w-full max-w-md max-h-[calc(100dvh-1.5rem)] overflow-y-auto overscroll-contain rounded-2xl border border-border/80 bg-background/95 p-6 shadow-2xl backdrop-blur-sm sm:max-h-[calc(100dvh-2.5rem)] sm:p-8 md:p-10">
             <div className="mb-8 flex flex-col items-center text-center">
               <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-foreground text-background">
                 <Bus className="h-6 w-6" aria-hidden />
@@ -116,39 +116,37 @@ export default function StaffAuthPage() {
               </h1>
             </div>
 
-            <div className="flex justify-center">
-              <div
-                className="inline-flex rounded-xl border border-border bg-muted/40 p-1"
-                role="tablist"
-                aria-label="Sign in or sign up"
+            <div
+              className="flex w-full rounded-xl border border-border bg-muted/40 p-1"
+              role="tablist"
+              aria-label="Sign in or sign up"
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "login"}
+                onClick={() => switchTab("login")}
+                className={`min-h-11 min-w-0 flex-1 rounded-lg px-2 py-2.5 text-sm font-medium transition ${
+                  tab === "login"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
               >
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === "login"}
-                  onClick={() => switchTab("login")}
-                  className={`w-[132px] rounded-lg py-2.5 text-sm font-medium transition sm:w-[152px] ${
-                    tab === "login"
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Sign in
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={tab === "signup"}
-                  onClick={() => switchTab("signup")}
-                  className={`w-[132px] rounded-lg py-2.5 text-sm font-medium transition sm:w-[152px] ${
-                    tab === "signup"
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  Sign up
-                </button>
-              </div>
+                Sign in
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "signup"}
+                onClick={() => switchTab("signup")}
+                className={`min-h-11 min-w-0 flex-1 rounded-lg px-2 py-2.5 text-sm font-medium transition ${
+                  tab === "signup"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Sign up
+              </button>
             </div>
 
             {tab === "login" ? (
@@ -169,7 +167,7 @@ export default function StaffAuthPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className={field}
-                    placeholder="you@transit.agency"
+                    placeholder="name@transit.agency"
                   />
                 </div>
                 <div className="space-y-2">
@@ -188,6 +186,7 @@ export default function StaffAuthPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className={field}
+                    placeholder="Enter your password"
                   />
                 </div>
                 {error ? (
@@ -198,7 +197,7 @@ export default function StaffAuthPage() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
                 >
                   {submitting ? "Signing in…" : "Sign in"}
                 </button>
@@ -231,7 +230,7 @@ export default function StaffAuthPage() {
                     }
                     navigate("/staff", { replace: true });
                   }}
-                  className="inline-flex h-11 w-full items-center justify-center rounded-xl border border-border bg-muted/40 px-4 text-sm font-medium text-foreground transition hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-border bg-muted/40 px-4 text-sm font-medium text-foreground transition hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
                 >
                   Bypass — use demo account
                 </button>
@@ -254,7 +253,7 @@ export default function StaffAuthPage() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className={field}
-                    placeholder="you@transit.agency"
+                    placeholder="name@transit.agency"
                   />
                 </div>
                 <div className="space-y-2">
@@ -273,7 +272,7 @@ export default function StaffAuthPage() {
                     value={transitCode}
                     onChange={(e) => setTransitCode(e.target.value)}
                     className={field}
-                    placeholder="From your administrator"
+                    placeholder="Invitation code from your admin"
                   />
                 </div>
                 <div className="space-y-2">
@@ -292,6 +291,7 @@ export default function StaffAuthPage() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className={field}
+                    placeholder="At least 8 characters"
                   />
                 </div>
                 <div className="space-y-2">
@@ -310,6 +310,7 @@ export default function StaffAuthPage() {
                     value={confirm}
                     onChange={(e) => setConfirm(e.target.value)}
                     className={field}
+                    placeholder="Re-enter your password"
                   />
                 </div>
                 {error ? (
@@ -320,7 +321,7 @@ export default function StaffAuthPage() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
                 >
                   {submitting ? "Creating account…" : "Create account"}
                 </button>

@@ -3,7 +3,6 @@ import { AuthProvider } from "./context/AuthProvider";
 import { useAuth } from "./context/useAuth";
 import Home from "./pages/Home";
 import PassengerChatPage from "./pages/PassengerChatPage";
-import PassengerDashboard from "./pages/PassengerDashboard";
 import PassengerSignInPage from "./pages/PassengerSignInPage";
 import StaffAuthPage from "./pages/StaffAuthPage";
 import StaffDashboard from "./pages/StaffDashboard";
@@ -11,7 +10,7 @@ import StaffDashboard from "./pages/StaffDashboard";
 function StaffRoute({ children }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/staff/auth" replace />;
-  if (user.role !== "staff") return <Navigate to="/passenger" replace />;
+  if (user.role !== "staff") return <Navigate to="/passenger/chat" replace />;
   return children;
 }
 
@@ -62,7 +61,7 @@ export default function App() {
             path="/passenger"
             element={
               <PassengerRoute>
-                <PassengerDashboard />
+                <Navigate to="/passenger/chat" replace />
               </PassengerRoute>
             }
           />

@@ -16,7 +16,8 @@ function formatBackendResult(action, data) {
       const reports = data.reports || [];
       if (reports.length === 0) return "You have no lost item reports on file.";
       const lines = reports.map(
-        (r, i) => `${i + 1}. ${r.item_name || "Unnamed"} — ${r.status || "open"} (ID: ${r.id})`,
+        (r, i) =>
+          `${i + 1}. ${r.item_name || "Unnamed"} — ${r.status || "open"} (ID: ${r.id})`,
       );
       return `Here are your lost item reports:\n\n${lines.join("\n")}`;
     }
@@ -26,7 +27,8 @@ function formatBackendResult(action, data) {
 
     case "search_found_item_matches": {
       const matches = data.matches || [];
-      if (matches.length === 0) return "No matching found items yet. We'll keep looking!";
+      if (matches.length === 0)
+        return "No matching found items yet. We'll keep looking!";
       const lines = matches.map(
         (m, i) =>
           `${i + 1}. ${m.item_name || "Unnamed"} — ${m.color || ""} ${m.brand || ""} (score: ${(m.similarity_score ?? 0).toFixed(2)}, ID: ${m.found_item_id})`,
@@ -66,10 +68,7 @@ export default function PassengerChatPage() {
     if (!text || sending) return;
 
     const userId = `u-${Date.now()}`;
-    setMessages((m) => [
-      ...m,
-      { id: userId, role: "user", content: text },
-    ]);
+    setMessages((m) => [...m, { id: userId, role: "user", content: text }]);
     setDraft("");
     setSending(true);
 
