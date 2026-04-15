@@ -73,6 +73,12 @@ func (s *PassengerService) Login(ctx context.Context, in inbound.LoginInput) (*i
 }
 
 func (s *PassengerService) CreateLostReport(ctx context.Context, in inbound.CreateLostReportInput) (*inbound.LostReport, error) {
+	embeddingText := buildLostReportEmbeddingText(in)
+	embedding, err := embedTextOpenAI(ctx, embeddingText)
+	if err != nil {
+		return nil, err
+	}
+
 	now := time.Now()
 	rpt := inbound.LostReport{
 		ReporterPassengerID: in.PassengerID,
@@ -96,6 +102,11 @@ func (s *PassengerService) CreateLostReport(ctx context.Context, in inbound.Crea
 
 	created, err := s.repo.CreateLostReport(ctx, rpt)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := s.repo.UpsertLostReportEmbedding(ctx, created.ID, embedding); err != nil {
+		_ = s.repo.DeleteLostReport(ctx, in.PassengerID, created.ID)
 		return nil, err
 	}
 	return created, nil
@@ -126,7 +137,7 @@ func (s *PassengerService) FileClaim(ctx context.Context, in inbound.FileClaimIn
 	claim := inbound.ItemClaim{
 		ItemID:              in.FoundItemID,
 		ClaimantPassengerID: in.PassengerID,
-		LostReportID:         in.LostReportID,
+		LostReportID:        in.LostReportID,
 		Message:             in.Message,
 		Status:              "pending",
 		CreatedAt:           now,
@@ -138,4 +149,3 @@ func (s *PassengerService) FileClaim(ctx context.Context, in inbound.FileClaimIn
 	}
 	return created, nil
 }
-
