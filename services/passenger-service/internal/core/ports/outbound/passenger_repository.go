@@ -2,6 +2,7 @@ package outbound
 
 import (
 	"context"
+	"time"
 
 	"smartfind/services/passenger-service/internal/core/domain"
 	"smartfind/services/passenger-service/internal/core/ports/inbound"
@@ -16,9 +17,13 @@ type PassengerRepository interface {
 
 	CreateLostReport(ctx context.Context, report inbound.LostReport) (*inbound.LostReport, error)
 	UpsertLostReportEmbedding(ctx context.Context, lostReportID string, embedding []float32) error
+	GetLostReportEmbeddingForPassenger(ctx context.Context, passengerID string, lostReportID string) ([]float32, error)
 	ListLostReports(ctx context.Context, passengerID string, status string) ([]inbound.LostReport, error)
 	DeleteLostReport(ctx context.Context, passengerID string, lostReportID string) error
+	UpdateLostReportStatus(ctx context.Context, passengerID string, lostReportID string, status string) error
 
-	SearchFoundItemMatches(ctx context.Context, passengerID string, lostReportID string, limit int) ([]inbound.FoundItemMatch, error)
 	CreateItemClaim(ctx context.Context, claim inbound.ItemClaim) (*inbound.ItemClaim, error)
+
+	ListNotifications(ctx context.Context, passengerID string, limit int, unreadOnly bool, createdBefore time.Time) ([]inbound.PassengerMatchNotification, error)
+	MarkNotificationsRead(ctx context.Context, passengerID string, notificationIDs []string) error
 }

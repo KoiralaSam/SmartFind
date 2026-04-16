@@ -344,10 +344,25 @@ class PassengerGrpcHandler:
                 report = await self.create_lost_report(
                     passenger_id=passenger_id, payload=payload, forwarded_token=forwarded_token
                 )
+                matches = []
+                try:
+                    resp = await self.search_found_item_matches(
+                        passenger_id=passenger_id,
+                        lost_report_id=report.id,
+                        limit=10,
+                        forwarded_token=forwarded_token,
+                    )
+                    resp_dict = MessageToDict(resp, preserving_proto_field_name=True)
+                    matches = resp_dict.get("matches") or []
+                except Exception:
+                    matches = []
                 return ChatDispatchResult(
                     action=action,
                     ok=True,
-                    data=MessageToDict(report, preserving_proto_field_name=True),
+                    data={
+                        "report": MessageToDict(report, preserving_proto_field_name=True),
+                        "matches": matches,
+                    },
                 )
 
             if action == ChatAction.LIST_LOST_REPORTS:

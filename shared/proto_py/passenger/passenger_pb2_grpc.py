@@ -40,11 +40,6 @@ class PassengerServiceStub(object):
                 request_serializer=passenger__pb2.LoginRequest.SerializeToString,
                 response_deserializer=passenger__pb2.LoginResponse.FromString,
                 _registered_method=True)
-        self.Logout = channel.unary_unary(
-                '/smartfind.passenger.v1.PassengerService/Logout',
-                request_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                _registered_method=True)
         self.CreateLostReport = channel.unary_unary(
                 '/smartfind.passenger.v1.PassengerService/CreateLostReport',
                 request_serializer=passenger__pb2.CreateLostReportRequest.SerializeToString,
@@ -70,18 +65,22 @@ class PassengerServiceStub(object):
                 request_serializer=passenger__pb2.FileClaimRequest.SerializeToString,
                 response_deserializer=passenger__pb2.ItemClaim.FromString,
                 _registered_method=True)
+        self.ListNotifications = channel.unary_unary(
+                '/smartfind.passenger.v1.PassengerService/ListNotifications',
+                request_serializer=passenger__pb2.ListNotificationsRequest.SerializeToString,
+                response_deserializer=passenger__pb2.ListNotificationsResponse.FromString,
+                _registered_method=True)
+        self.MarkNotificationRead = channel.unary_unary(
+                '/smartfind.passenger.v1.PassengerService/MarkNotificationRead',
+                request_serializer=passenger__pb2.MarkNotificationReadRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
 
 
 class PassengerServiceServicer(object):
     """Missing associated documentation comment in .proto file."""
 
     def Login(self, request, context):
-        """Missing associated documentation comment in .proto file."""
-        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
-        context.set_details('Method not implemented!')
-        raise NotImplementedError('Method not implemented!')
-
-    def Logout(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -117,6 +116,18 @@ class PassengerServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListNotifications(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def MarkNotificationRead(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_PassengerServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -124,11 +135,6 @@ def add_PassengerServiceServicer_to_server(servicer, server):
                     servicer.Login,
                     request_deserializer=passenger__pb2.LoginRequest.FromString,
                     response_serializer=passenger__pb2.LoginResponse.SerializeToString,
-            ),
-            'Logout': grpc.unary_unary_rpc_method_handler(
-                    servicer.Logout,
-                    request_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
-                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ),
             'CreateLostReport': grpc.unary_unary_rpc_method_handler(
                     servicer.CreateLostReport,
@@ -154,6 +160,16 @@ def add_PassengerServiceServicer_to_server(servicer, server):
                     servicer.FileClaim,
                     request_deserializer=passenger__pb2.FileClaimRequest.FromString,
                     response_serializer=passenger__pb2.ItemClaim.SerializeToString,
+            ),
+            'ListNotifications': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListNotifications,
+                    request_deserializer=passenger__pb2.ListNotificationsRequest.FromString,
+                    response_serializer=passenger__pb2.ListNotificationsResponse.SerializeToString,
+            ),
+            'MarkNotificationRead': grpc.unary_unary_rpc_method_handler(
+                    servicer.MarkNotificationRead,
+                    request_deserializer=passenger__pb2.MarkNotificationReadRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -183,33 +199,6 @@ class PassengerService(object):
             '/smartfind.passenger.v1.PassengerService/Login',
             passenger__pb2.LoginRequest.SerializeToString,
             passenger__pb2.LoginResponse.FromString,
-            options,
-            channel_credentials,
-            insecure,
-            call_credentials,
-            compression,
-            wait_for_ready,
-            timeout,
-            metadata,
-            _registered_method=True)
-
-    @staticmethod
-    def Logout(request,
-            target,
-            options=(),
-            channel_credentials=None,
-            call_credentials=None,
-            insecure=False,
-            compression=None,
-            wait_for_ready=None,
-            timeout=None,
-            metadata=None):
-        return grpc.experimental.unary_unary(
-            request,
-            target,
-            '/smartfind.passenger.v1.PassengerService/Logout',
-            google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
-            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
             options,
             channel_credentials,
             insecure,
@@ -345,6 +334,60 @@ class PassengerService(object):
             '/smartfind.passenger.v1.PassengerService/FileClaim',
             passenger__pb2.FileClaimRequest.SerializeToString,
             passenger__pb2.ItemClaim.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListNotifications(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/smartfind.passenger.v1.PassengerService/ListNotifications',
+            passenger__pb2.ListNotificationsRequest.SerializeToString,
+            passenger__pb2.ListNotificationsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def MarkNotificationRead(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/smartfind.passenger.v1.PassengerService/MarkNotificationRead',
+            passenger__pb2.MarkNotificationReadRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
             options,
             channel_credentials,
             insecure,

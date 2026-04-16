@@ -1,0 +1,80 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: passenger-match-worker
+  labels:
+    app: passenger-match-worker
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: passenger-match-worker
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: passenger-match-worker
+              image: smartfind/passenger-match-worker
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: postgres-secret
+                      key: DATABASE_URL_CLUSTER
+                - name: INTERNAL_SERVICE_SECRET
+                  valueFrom:
+                    secretKeyRef:
+                      name: internal-service-secret
+                      key: INTERNAL_SERVICE_SECRET
+                - name: STAFF_SERVICE_ADDRESS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: app-config
+                      key: STAFF_SERVICE_ADDRESS
+                - name: SENDGRID_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: sendgrid-secrets
+                      key: SENDGRID_API_KEY
+                - name: SENDGRID_FROM_EMAIL
+                  valueFrom:
+                    secretKeyRef:
+                      name: sendgrid-secrets
+                      key: SENDGRID_FROM_EMAIL
+                - name: PUBLIC_APP_BASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: sendgrid-secrets
+                      key: PUBLIC_APP_BASE_URL
+                - name: MATCH_MIN_SIMILARITY
+                  valueFrom:
+                    secretKeyRef:
+                      name: sendgrid-secrets
+                      key: MATCH_MIN_SIMILARITY
+                - name: MATCH_MAX_NOTIFS_PER_REPORT_PER_DAY
+                  valueFrom:
+                    secretKeyRef:
+                      name: sendgrid-secrets
+                      key: MATCH_MAX_NOTIFS_PER_REPORT_PER_DAY
+                - name: MATCH_MAX_NOTIFS_PER_PASSENGER_PER_DAY
+                  valueFrom:
+                    secretKeyRef:
+                      name: sendgrid-secrets
+                      key: MATCH_MAX_NOTIFS_PER_PASSENGER_PER_DAY
+                - name: MATCH_EMAIL_COOLDOWN_MINUTES
+                  valueFrom:
+                    secretKeyRef:
+                      name: sendgrid-secrets
+                      key: MATCH_EMAIL_COOLDOWN_MINUTES
+                - name: MATCH_EMAIL_MAX_ITEMS
+                  valueFrom:
+                    secretKeyRef:
+                      name: sendgrid-secrets
+                      key: MATCH_EMAIL_MAX_ITEMS
+
