@@ -29,6 +29,11 @@ spec:
             - containerPort: 50052
               name: grpc
           env:
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: ENVIRONMENT
             - name: STAFF_GRPC_ADDR
               value: ":50052"
             - name: DATABASE_URL
@@ -56,6 +61,66 @@ spec:
                 secretKeyRef:
                   name: staff-service-secrets
                   key: JWT_TTL_SECONDS
+            - name: INTERNAL_SERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: internal-service-secret
+                  key: INTERNAL_SERVICE_SECRET
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_SESSION_TOKEN
+            - name: AWS_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_REGION
+            - name: AWS_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_S3_BUCKET
+            - name: AWS_S3_PREFIX
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_S3_PREFIX
+            - name: AWS_S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_S3_ENDPOINT
+            - name: AWS_S3_FORCE_PATH_STYLE
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_S3_FORCE_PATH_STYLE
+            - name: AWS_S3_PRESIGN_PUT_TTL_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_S3_PRESIGN_PUT_TTL_SECONDS
+            - name: AWS_S3_PRESIGN_GET_TTL_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_S3_PRESIGN_GET_TTL_SECONDS
+            - name: MEDIA_MAX_IMAGE_BYTES
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: MEDIA_MAX_IMAGE_BYTES
           readinessProbe:
             tcpSocket:
               port: grpc

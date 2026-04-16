@@ -16,5 +16,8 @@ RUN /app/venv/bin/pip install --no-cache-dir -r requirements.txt
 COPY services/detail-extracter-agent ./
 
 EXPOSE 8091
+EXPOSE 50053
+
+COPY shared/proto_py ./shared/proto_py
 
 CMD ["/app/venv/bin/python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8091"]

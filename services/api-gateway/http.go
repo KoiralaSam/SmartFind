@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -9,7 +10,9 @@ import (
 
 	grpcclients "smartfind/services/api-gateway/grpc_clients"
 	"smartfind/shared/env"
+	"smartfind/shared/grpcclient"
 
+	detailpb "smartfind/shared/proto/detailextractor"
 	passengerpb "smartfind/shared/proto/passenger"
 	staffpb "smartfind/shared/proto/staff"
 
@@ -35,6 +38,94 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		next(w, r)
 	}
+}
+
+func forwardedTokenFromRequest(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+
+	// Prefer explicit Authorization header when present.
+	authHeader := strings.TrimSpace(r.Header.Get("Authorization"))
+	if authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") {
+			return strings.TrimSpace(parts[1])
+		}
+		return authHeader
+	}
+
+	// Fall back to cookies used by the gateway login flows.
+	if c, err := r.Cookie("staff_session"); err == nil {
+		if v := strings.TrimSpace(c.Value); v != "" {
+			return v
+		}
+	}
+	if c, err := r.Cookie("passenger_session"); err == nil {
+		if v := strings.TrimSpace(c.Value); v != "" {
+			return v
+		}
+	}
+
+	return ""
+}
+
+func extractDetailsHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req DetailExtractRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid json"})
+		return
+	}
+	if strings.TrimSpace(req.ImageBase64) == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "image_base64 is required"})
+		return
+	}
+
+	internal := strings.TrimSpace(env.GetString("INTERNAL_SERVICE_SECRET", ""))
+	if internal == "" {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "INTERNAL_SERVICE_SECRET is not configured"})
+		return
+	}
+	forwarded := forwardedTokenFromRequest(r)
+	if forwarded == "" {
+		writeJSON(w, http.StatusUnauthorized, ErrorResponse{Error: "missing session token"})
+		return
+	}
+
+	client, err := grpcclients.NewDetailExtractorGRPCClient()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "failed to connect to detail extractor service"})
+		return
+	}
+	defer client.Close()
+
+	ctx := grpcclient.WithForwardedToken(r.Context(), forwarded)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	resp, err := client.Client.Extract(ctx, &detailpb.ExtractRequest{ImageBase64: req.ImageBase64})
+	if err != nil {
+		writeGRPCError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, DetailExtractResponse{
+		ItemName:        resp.GetItemName(),
+		ItemType:        resp.GetItemType(),
+		Category:        resp.GetCategory(),
+		Brand:           resp.GetBrand(),
+		Model:           resp.GetModel(),
+		Color:           resp.GetColor(),
+		Material:        resp.GetMaterial(),
+		ItemCondition:   resp.GetItemCondition(),
+		ItemDescription: resp.GetItemDescription(),
+	})
 }
 
 func passengerLoginHandler(w http.ResponseWriter, r *http.Request) {
@@ -252,7 +343,14 @@ func staffCreateFoundItemHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer staffClient.Close()
 
-	resp, err := staffClient.Client.CreateFoundItem(r.Context(), &staffpb.CreateFoundItemRequest{
+	forwarded := forwardedTokenFromRequest(r)
+	if forwarded == "" {
+		writeJSON(w, http.StatusUnauthorized, ErrorResponse{Error: "missing session token"})
+		return
+	}
+	ctx := grpcclient.WithForwardedToken(r.Context(), forwarded)
+
+	resp, err := staffClient.Client.CreateFoundItem(ctx, &staffpb.CreateFoundItemRequest{
 		StaffId:         req.StaffID,
 		ItemName:        req.ItemName,
 		ItemDescription: req.ItemDescription,
@@ -267,13 +365,15 @@ func staffCreateFoundItemHandler(w http.ResponseWriter, r *http.Request) {
 		RouteOrStation:  req.RouteOrStation,
 		RouteId:         req.RouteID,
 		DateFound:       ts,
+		ImageKeys:       req.ImageKeys,
+		PrimaryImageKey: req.PrimaryImageKey,
 	})
 	if err != nil {
 		writeGRPCError(w, err)
 		return
 	}
 
-	writeJSON(w, http.StatusOK, foundItemPBToDTO(resp))
+	writeJSON(w, http.StatusOK, foundItemPBToDTO(r.Context(), resp))
 }
 
 func staffUpdateFoundItemStatusHandler(w http.ResponseWriter, r *http.Request) {
@@ -308,7 +408,14 @@ func staffUpdateFoundItemStatusHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer staffClient.Close()
 
-	resp, err := staffClient.Client.UpdateFoundItemStatus(r.Context(), &staffpb.UpdateFoundItemStatusRequest{
+	forwarded := forwardedTokenFromRequest(r)
+	if forwarded == "" {
+		writeJSON(w, http.StatusUnauthorized, ErrorResponse{Error: "missing session token"})
+		return
+	}
+	ctx := grpcclient.WithForwardedToken(r.Context(), forwarded)
+
+	resp, err := staffClient.Client.UpdateFoundItemStatus(ctx, &staffpb.UpdateFoundItemStatusRequest{
 		StaffId:     req.StaffID,
 		FoundItemId: req.FoundItemID,
 		Status:      req.Status,
@@ -318,7 +425,7 @@ func staffUpdateFoundItemStatusHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, foundItemPBToDTO(resp))
+	writeJSON(w, http.StatusOK, foundItemPBToDTO(r.Context(), resp))
 }
 
 func staffListFoundItemsHandler(w http.ResponseWriter, r *http.Request) {
@@ -338,7 +445,14 @@ func staffListFoundItemsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer staffClient.Close()
 
-	resp, err := staffClient.Client.ListFoundItems(r.Context(), &staffpb.ListFoundItemsRequest{
+	forwarded := forwardedTokenFromRequest(r)
+	if forwarded == "" {
+		writeJSON(w, http.StatusUnauthorized, ErrorResponse{Error: "missing session token"})
+		return
+	}
+	ctx := grpcclient.WithForwardedToken(r.Context(), forwarded)
+
+	resp, err := staffClient.Client.ListFoundItems(ctx, &staffpb.ListFoundItemsRequest{
 		Status:          r.URL.Query().Get("status"),
 		RouteId:         r.URL.Query().Get("route_id"),
 		PostedByStaffId: r.URL.Query().Get("posted_by_staff_id"),
@@ -352,7 +466,7 @@ func staffListFoundItemsHandler(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]FoundItemDTO, 0, len(resp.GetItems()))
 	for _, it := range resp.GetItems() {
-		items = append(items, foundItemPBToDTO(it))
+		items = append(items, foundItemPBToDTO(r.Context(), it))
 	}
 	writeJSON(w, http.StatusOK, StaffListFoundItemsResponse{Items: items})
 }
@@ -374,7 +488,14 @@ func staffListClaimsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer staffClient.Close()
 
-	resp, err := staffClient.Client.ListClaims(r.Context(), &staffpb.ListClaimsRequest{
+	forwarded := forwardedTokenFromRequest(r)
+	if forwarded == "" {
+		writeJSON(w, http.StatusUnauthorized, ErrorResponse{Error: "missing session token"})
+		return
+	}
+	ctx := grpcclient.WithForwardedToken(r.Context(), forwarded)
+
+	resp, err := staffClient.Client.ListClaims(ctx, &staffpb.ListClaimsRequest{
 		Status:      r.URL.Query().Get("status"),
 		ItemId:      r.URL.Query().Get("item_id"),
 		PassengerId: r.URL.Query().Get("passenger_id"),
@@ -425,7 +546,14 @@ func staffReviewClaimHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer staffClient.Close()
 
-	resp, err := staffClient.Client.ReviewClaim(r.Context(), &staffpb.ReviewClaimRequest{
+	forwarded := forwardedTokenFromRequest(r)
+	if forwarded == "" {
+		writeJSON(w, http.StatusUnauthorized, ErrorResponse{Error: "missing session token"})
+		return
+	}
+	ctx := grpcclient.WithForwardedToken(r.Context(), forwarded)
+
+	resp, err := staffClient.Client.ReviewClaim(ctx, &staffpb.ReviewClaimRequest{
 		StaffId:  req.StaffID,
 		ClaimId:  req.ClaimID,
 		Decision: req.Decision,
@@ -465,7 +593,14 @@ func staffCreateRouteHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer staffClient.Close()
 
-	resp, err := staffClient.Client.CreateRoute(r.Context(), &staffpb.CreateRouteRequest{
+	forwarded := forwardedTokenFromRequest(r)
+	if forwarded == "" {
+		writeJSON(w, http.StatusUnauthorized, ErrorResponse{Error: "missing session token"})
+		return
+	}
+	ctx := grpcclient.WithForwardedToken(r.Context(), forwarded)
+
+	resp, err := staffClient.Client.CreateRoute(ctx, &staffpb.CreateRouteRequest{
 		StaffId:   req.StaffID,
 		RouteName: req.RouteName,
 	})
@@ -504,7 +639,14 @@ func staffDeleteRouteHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer staffClient.Close()
 
-	_, err = staffClient.Client.DeleteRoute(r.Context(), &staffpb.DeleteRouteRequest{
+	forwarded := forwardedTokenFromRequest(r)
+	if forwarded == "" {
+		writeJSON(w, http.StatusUnauthorized, ErrorResponse{Error: "missing session token"})
+		return
+	}
+	ctx := grpcclient.WithForwardedToken(r.Context(), forwarded)
+
+	_, err = staffClient.Client.DeleteRoute(ctx, &staffpb.DeleteRouteRequest{
 		StaffId: req.StaffID,
 		RouteId: req.RouteID,
 	})
@@ -533,7 +675,14 @@ func staffListRoutesHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer staffClient.Close()
 
-	resp, err := staffClient.Client.ListRoutes(r.Context(), &staffpb.ListRoutesRequest{
+	forwarded := forwardedTokenFromRequest(r)
+	if forwarded == "" {
+		writeJSON(w, http.StatusUnauthorized, ErrorResponse{Error: "missing session token"})
+		return
+	}
+	ctx := grpcclient.WithForwardedToken(r.Context(), forwarded)
+
+	resp, err := staffClient.Client.ListRoutes(ctx, &staffpb.ListRoutesRequest{
 		CreatedByStaffId: r.URL.Query().Get("created_by_staff_id"),
 		Limit:            int32(limit),
 		Offset:           int32(offset),
@@ -635,11 +784,11 @@ func timestampToTime(ts *timestamppb.Timestamp) time.Time {
 	return ts.AsTime()
 }
 
-func foundItemPBToDTO(it *staffpb.FoundItem) FoundItemDTO {
+func foundItemPBToDTO(ctx context.Context, it *staffpb.FoundItem) FoundItemDTO {
 	if it == nil {
 		return FoundItemDTO{}
 	}
-	return FoundItemDTO{
+	dto := FoundItemDTO{
 		ID:              it.GetId(),
 		PostedByStaffID: it.GetPostedByStaffId(),
 		ItemName:        it.GetItemName(),
@@ -659,6 +808,19 @@ func foundItemPBToDTO(it *staffpb.FoundItem) FoundItemDTO {
 		CreatedAt:       timestampToTime(it.GetCreatedAt()),
 		UpdatedAt:       timestampToTime(it.GetUpdatedAt()),
 	}
+
+	urls := it.GetImageUrls()
+	if len(urls) > 0 {
+		dto.Images = urls
+	}
+
+	primaryURL := strings.TrimSpace(it.GetPrimaryImageUrl())
+	if primaryURL != "" {
+		dto.Image = primaryURL
+	} else if len(urls) > 0 {
+		dto.Image = urls[0]
+	}
+	return dto
 }
 
 func itemClaimPBToDTO(c *staffpb.ItemClaim) ItemClaimDTO {

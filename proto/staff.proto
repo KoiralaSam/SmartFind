@@ -15,6 +15,10 @@ service StaffService {
   rpc UpdateFoundItemStatus(UpdateFoundItemStatusRequest) returns (FoundItem);
   rpc ListFoundItems(ListFoundItemsRequest) returns (ListFoundItemsResponse);
 
+  // Media: found-item image uploads (S3 presigned URLs + cleanup).
+  rpc InitFoundItemImageUploads(InitFoundItemImageUploadsRequest) returns (InitFoundItemImageUploadsResponse);
+  rpc DeleteFoundItemImageUpload(DeleteFoundItemImageUploadRequest) returns (google.protobuf.Empty);
+
   rpc ListClaims(ListClaimsRequest) returns (ListClaimsResponse);
   rpc ReviewClaim(ReviewClaimRequest) returns (ItemClaim);
 
@@ -67,6 +71,11 @@ message FoundItem {
   string status = 16;
   google.protobuf.Timestamp created_at = 17;
   google.protobuf.Timestamp updated_at = 18;
+  repeated string image_keys = 19;
+  string primary_image_key = 20;
+  // Presigned GET URLs for displaying images in the dashboard.
+  repeated string image_urls = 21;
+  string primary_image_url = 22;
 }
 
 message CreateFoundItemRequest {
@@ -84,6 +93,31 @@ message CreateFoundItemRequest {
   string route_or_station = 12;
   string route_id = 13;
   google.protobuf.Timestamp date_found = 14;
+  repeated string image_keys = 15;
+  string primary_image_key = 16;
+}
+
+message InitFoundItemImageUploadsRequest {
+  repeated UploadFile files = 1;
+}
+
+message UploadFile {
+  string content_type = 1;
+  int64 size_bytes = 2;
+}
+
+message InitFoundItemImageUploadsResponse {
+  repeated UploadInit uploads = 1;
+}
+
+message UploadInit {
+  string s3_key = 1;
+  string upload_url = 2;
+  map<string, string> headers = 3;
+}
+
+message DeleteFoundItemImageUploadRequest {
+  string s3_key = 1;
 }
 
 message UpdateFoundItemStatusRequest {
