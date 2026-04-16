@@ -27,33 +27,38 @@ func (r *StaffRepository) CreateFoundItem(ctx context.Context, in inbound.Create
 
 	var it inbound.FoundItem
 	var df pgtype.Date
+	var imageKeys pgtype.FlatArray[string]
 	err := r.pool.QueryRow(ctx, `
-		INSERT INTO found_items (
-			posted_by_staff_id,
-			item_name, item_description, item_type, brand, model, color, material, item_condition,
-			category, location_found, route_or_station, route_id, date_found,
-			status, created_at, updated_at
-		) VALUES (
-			$1::uuid,
-			$2, $3, $4, $5, $6, $7, $8, $9,
-			$10, $11, $12, NULLIF($13, '')::uuid, $14,
-			'unclaimed', $15, $16
-		)
-		RETURNING
-			id::text, posted_by_staff_id::text,
-			item_name, COALESCE(item_description, ''), item_type, brand, model, color, material, item_condition,
-			COALESCE(category, ''), COALESCE(location_found, ''), COALESCE(route_or_station, ''),
-			COALESCE(route_id::text, ''), date_found,
-			status::text, created_at, updated_at
-	`, in.StaffID,
+			INSERT INTO found_items (
+				posted_by_staff_id,
+				item_name, item_description, item_type, brand, model, color, material, item_condition,
+				category, location_found, route_or_station, route_id, date_found,
+				image_keys, primary_image_key,
+				status, created_at, updated_at
+			) VALUES (
+				$1::uuid,
+				$2, $3, $4, $5, $6, $7, $8, $9,
+				$10, $11, $12, NULLIF($13, '')::uuid, $14,
+				$15::text[], NULLIF($16, ''),
+				'unclaimed', $17, $18
+			)
+			RETURNING
+				id::text, posted_by_staff_id::text,
+				item_name, COALESCE(item_description, ''), item_type, brand, model, color, material, item_condition,
+				COALESCE(category, ''), COALESCE(location_found, ''), COALESCE(route_or_station, ''),
+				COALESCE(route_id::text, ''), date_found,
+				COALESCE(image_keys, '{}'::text[]), COALESCE(primary_image_key, ''),
+				status::text, created_at, updated_at
+		`, in.StaffID,
 		in.ItemName, in.ItemDescription, in.ItemType, in.Brand, in.Model, in.Color, in.Material, in.ItemCondition,
 		in.Category, in.LocationFound, in.RouteOrStation, in.RouteID, dateArg,
+		pgtype.FlatArray[string](in.ImageKeys), in.PrimaryImageKey,
 		now, now,
 	).Scan(
 		&it.ID, &it.PostedByStaffID,
 		&it.ItemName, &it.ItemDescription, &it.ItemType, &it.Brand, &it.Model, &it.Color, &it.Material, &it.ItemCondition,
 		&it.Category, &it.LocationFound, &it.RouteOrStation, &it.RouteID,
-		&df, &it.Status, &it.CreatedAt, &it.UpdatedAt,
+		&df, &imageKeys, &it.PrimaryImageKey, &it.Status, &it.CreatedAt, &it.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -61,28 +66,33 @@ func (r *StaffRepository) CreateFoundItem(ctx context.Context, in inbound.Create
 	if df.Valid {
 		it.DateFound = df.Time
 	}
+	if imageKeys != nil {
+		it.ImageKeys = []string(imageKeys)
+	}
 	return &it, nil
 }
 
 func (r *StaffRepository) UpdateFoundItemStatus(ctx context.Context, foundItemID, staffID, status string) (*inbound.FoundItem, error) {
 	var it inbound.FoundItem
 	var df pgtype.Date
+	var imageKeys pgtype.FlatArray[string]
 	err := r.pool.QueryRow(ctx, `
-		UPDATE found_items
-		SET status = $1::found_item_status, updated_at = NOW()
-		WHERE id = $2::uuid AND posted_by_staff_id = $3::uuid
-		RETURNING
-			id::text, posted_by_staff_id::text,
-			item_name, COALESCE(item_description, ''), item_type, brand, model, color, material, item_condition,
-			COALESCE(category, ''), COALESCE(location_found, ''), COALESCE(route_or_station, ''),
-			COALESCE(route_id::text, ''), date_found,
-			status::text, created_at, updated_at
-	`, status, foundItemID, staffID,
+			UPDATE found_items
+			SET status = $1::found_item_status, updated_at = NOW()
+			WHERE id = $2::uuid AND posted_by_staff_id = $3::uuid
+			RETURNING
+				id::text, posted_by_staff_id::text,
+				item_name, COALESCE(item_description, ''), item_type, brand, model, color, material, item_condition,
+				COALESCE(category, ''), COALESCE(location_found, ''), COALESCE(route_or_station, ''),
+				COALESCE(route_id::text, ''), date_found,
+				COALESCE(image_keys, '{}'::text[]), COALESCE(primary_image_key, ''),
+				status::text, created_at, updated_at
+		`, status, foundItemID, staffID,
 	).Scan(
 		&it.ID, &it.PostedByStaffID,
 		&it.ItemName, &it.ItemDescription, &it.ItemType, &it.Brand, &it.Model, &it.Color, &it.Material, &it.ItemCondition,
 		&it.Category, &it.LocationFound, &it.RouteOrStation, &it.RouteID,
-		&df, &it.Status, &it.CreatedAt, &it.UpdatedAt,
+		&df, &imageKeys, &it.PrimaryImageKey, &it.Status, &it.CreatedAt, &it.UpdatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, outbound.ErrNotFound
@@ -92,6 +102,9 @@ func (r *StaffRepository) UpdateFoundItemStatus(ctx context.Context, foundItemID
 	}
 	if df.Valid {
 		it.DateFound = df.Time
+	}
+	if imageKeys != nil {
+		it.ImageKeys = []string(imageKeys)
 	}
 	return &it, nil
 }
@@ -111,15 +124,16 @@ func (r *StaffRepository) ListFoundItems(ctx context.Context, in inbound.ListFou
 
 	q := strings.Builder{}
 	q.WriteString(`
-		SELECT
-			id::text, posted_by_staff_id::text,
-			item_name, COALESCE(item_description, ''), item_type, brand, model, color, material, item_condition,
-			COALESCE(category, ''), COALESCE(location_found, ''), COALESCE(route_or_station, ''),
-			COALESCE(route_id::text, ''), date_found,
-			status::text, created_at, updated_at
-		FROM found_items
-		WHERE 1=1
-	`)
+			SELECT
+				id::text, posted_by_staff_id::text,
+				item_name, COALESCE(item_description, ''), item_type, brand, model, color, material, item_condition,
+				COALESCE(category, ''), COALESCE(location_found, ''), COALESCE(route_or_station, ''),
+				COALESCE(route_id::text, ''), date_found,
+				COALESCE(image_keys, '{}'::text[]), COALESCE(primary_image_key, ''),
+				status::text, created_at, updated_at
+			FROM found_items
+			WHERE 1=1
+		`)
 	args := []any{}
 	n := 1
 	if strings.TrimSpace(in.Status) != "" {
@@ -154,16 +168,20 @@ func scanFoundItemRows(rows pgx.Rows) ([]inbound.FoundItem, error) {
 	for rows.Next() {
 		var it inbound.FoundItem
 		var df pgtype.Date
+		var imageKeys pgtype.FlatArray[string]
 		if err := rows.Scan(
 			&it.ID, &it.PostedByStaffID,
 			&it.ItemName, &it.ItemDescription, &it.ItemType, &it.Brand, &it.Model, &it.Color, &it.Material, &it.ItemCondition,
 			&it.Category, &it.LocationFound, &it.RouteOrStation, &it.RouteID,
-			&df, &it.Status, &it.CreatedAt, &it.UpdatedAt,
+			&df, &imageKeys, &it.PrimaryImageKey, &it.Status, &it.CreatedAt, &it.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
 		if df.Valid {
 			it.DateFound = df.Time
+		}
+		if imageKeys != nil {
+			it.ImageKeys = []string(imageKeys)
 		}
 		out = append(out, it)
 	}

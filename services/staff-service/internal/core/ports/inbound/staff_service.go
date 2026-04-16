@@ -54,6 +54,8 @@ type FoundItem struct {
 	Status          string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	ImageKeys       []string
+	PrimaryImageKey string
 }
 
 type CreateFoundItemInput struct {
@@ -71,6 +73,8 @@ type CreateFoundItemInput struct {
 	RouteOrStation  string
 	RouteID         string
 	DateFound       time.Time
+	ImageKeys       []string
+	PrimaryImageKey string
 }
 
 type UpdateFoundItemStatusInput struct {

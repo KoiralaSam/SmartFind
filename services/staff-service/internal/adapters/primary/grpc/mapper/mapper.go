@@ -45,6 +45,8 @@ func FoundItemToPB(it *inbound.FoundItem) *pb.FoundItem {
 		Status:          it.Status,
 		CreatedAt:       timeToTimestamp(it.CreatedAt),
 		UpdatedAt:       timeToTimestamp(it.UpdatedAt),
+		ImageKeys:       it.ImageKeys,
+		PrimaryImageKey: it.PrimaryImageKey,
 	}
 }
 
@@ -107,4 +109,3 @@ func timeToTimestamp(t time.Time) *timestamppb.Timestamp {
 	}
 	return timestamppb.New(t)
 }
-

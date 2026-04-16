@@ -29,6 +29,11 @@ spec:
               memory: "128Mi"
               cpu: "125m"
           env:
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  key: ENVIRONMENT
+                  name: app-config
             - name: GATEWAY_HTTP_ADDR
               valueFrom:
                 configMapKeyRef:
@@ -44,6 +49,16 @@ spec:
                 configMapKeyRef:
                   key: STAFF_SERVICE_ADDRESS
                   name: app-config
+            - name: DETAIL_EXTRACTER_SERVICE_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  key: DETAIL_EXTRACTER_SERVICE_ADDRESS
+                  name: app-config
+            - name: INTERNAL_SERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: internal-service-secret
+                  key: INTERNAL_SERVICE_SECRET
           readinessProbe:
             tcpSocket:
               port: http
