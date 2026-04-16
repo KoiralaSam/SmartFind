@@ -27,6 +27,7 @@ type StaffRepository interface {
 	UpsertFoundItemEmbedding(ctx context.Context, foundItemID string, embedding []float32) error
 	UpdateFoundItemStatus(ctx context.Context, foundItemID, staffID, status string) (*inbound.FoundItem, error)
 	ListFoundItems(ctx context.Context, in inbound.ListFoundItemsInput) ([]inbound.FoundItem, error)
+	SearchFoundItemMatchesByEmbedding(ctx context.Context, queryEmbedding []float32, limit int, minSimilarity float64) ([]inbound.FoundItemMatch, error)
 
 	ListClaims(ctx context.Context, in inbound.ListClaimsInput) ([]inbound.ItemClaim, error)
 	UpdateClaimStatusForStaffItem(ctx context.Context, claimID, staffID, status string) (*inbound.ItemClaim, error)

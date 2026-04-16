@@ -53,7 +53,7 @@ class CreateStaffRequest(_message.Message):
     def __init__(self, transit_code: _Optional[str] = ..., full_name: _Optional[str] = ..., email: _Optional[str] = ..., password: _Optional[str] = ...) -> None: ...
 
 class FoundItem(_message.Message):
-    __slots__ = ("id", "posted_by_staff_id", "item_name", "item_description", "item_type", "brand", "model", "color", "material", "item_condition", "category", "location_found", "route_or_station", "route_id", "date_found", "status", "created_at", "updated_at")
+    __slots__ = ("id", "posted_by_staff_id", "item_name", "item_description", "item_type", "brand", "model", "color", "material", "item_condition", "category", "location_found", "route_or_station", "route_id", "date_found", "status", "created_at", "updated_at", "image_keys", "primary_image_key", "image_urls", "primary_image_url")
     ID_FIELD_NUMBER: _ClassVar[int]
     POSTED_BY_STAFF_ID_FIELD_NUMBER: _ClassVar[int]
     ITEM_NAME_FIELD_NUMBER: _ClassVar[int]
@@ -72,6 +72,10 @@ class FoundItem(_message.Message):
     STATUS_FIELD_NUMBER: _ClassVar[int]
     CREATED_AT_FIELD_NUMBER: _ClassVar[int]
     UPDATED_AT_FIELD_NUMBER: _ClassVar[int]
+    IMAGE_KEYS_FIELD_NUMBER: _ClassVar[int]
+    PRIMARY_IMAGE_KEY_FIELD_NUMBER: _ClassVar[int]
+    IMAGE_URLS_FIELD_NUMBER: _ClassVar[int]
+    PRIMARY_IMAGE_URL_FIELD_NUMBER: _ClassVar[int]
     id: str
     posted_by_staff_id: str
     item_name: str
@@ -90,10 +94,14 @@ class FoundItem(_message.Message):
     status: str
     created_at: _timestamp_pb2.Timestamp
     updated_at: _timestamp_pb2.Timestamp
-    def __init__(self, id: _Optional[str] = ..., posted_by_staff_id: _Optional[str] = ..., item_name: _Optional[str] = ..., item_description: _Optional[str] = ..., item_type: _Optional[str] = ..., brand: _Optional[str] = ..., model: _Optional[str] = ..., color: _Optional[str] = ..., material: _Optional[str] = ..., item_condition: _Optional[str] = ..., category: _Optional[str] = ..., location_found: _Optional[str] = ..., route_or_station: _Optional[str] = ..., route_id: _Optional[str] = ..., date_found: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., status: _Optional[str] = ..., created_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., updated_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    image_keys: _containers.RepeatedScalarFieldContainer[str]
+    primary_image_key: str
+    image_urls: _containers.RepeatedScalarFieldContainer[str]
+    primary_image_url: str
+    def __init__(self, id: _Optional[str] = ..., posted_by_staff_id: _Optional[str] = ..., item_name: _Optional[str] = ..., item_description: _Optional[str] = ..., item_type: _Optional[str] = ..., brand: _Optional[str] = ..., model: _Optional[str] = ..., color: _Optional[str] = ..., material: _Optional[str] = ..., item_condition: _Optional[str] = ..., category: _Optional[str] = ..., location_found: _Optional[str] = ..., route_or_station: _Optional[str] = ..., route_id: _Optional[str] = ..., date_found: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., status: _Optional[str] = ..., created_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., updated_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., image_keys: _Optional[_Iterable[str]] = ..., primary_image_key: _Optional[str] = ..., image_urls: _Optional[_Iterable[str]] = ..., primary_image_url: _Optional[str] = ...) -> None: ...
 
 class CreateFoundItemRequest(_message.Message):
-    __slots__ = ("staff_id", "item_name", "item_description", "item_type", "brand", "model", "color", "material", "item_condition", "category", "location_found", "route_or_station", "route_id", "date_found")
+    __slots__ = ("staff_id", "item_name", "item_description", "item_type", "brand", "model", "color", "material", "item_condition", "category", "location_found", "route_or_station", "route_id", "date_found", "image_keys", "primary_image_key")
     STAFF_ID_FIELD_NUMBER: _ClassVar[int]
     ITEM_NAME_FIELD_NUMBER: _ClassVar[int]
     ITEM_DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
@@ -108,6 +116,8 @@ class CreateFoundItemRequest(_message.Message):
     ROUTE_OR_STATION_FIELD_NUMBER: _ClassVar[int]
     ROUTE_ID_FIELD_NUMBER: _ClassVar[int]
     DATE_FOUND_FIELD_NUMBER: _ClassVar[int]
+    IMAGE_KEYS_FIELD_NUMBER: _ClassVar[int]
+    PRIMARY_IMAGE_KEY_FIELD_NUMBER: _ClassVar[int]
     staff_id: str
     item_name: str
     item_description: str
@@ -122,7 +132,76 @@ class CreateFoundItemRequest(_message.Message):
     route_or_station: str
     route_id: str
     date_found: _timestamp_pb2.Timestamp
-    def __init__(self, staff_id: _Optional[str] = ..., item_name: _Optional[str] = ..., item_description: _Optional[str] = ..., item_type: _Optional[str] = ..., brand: _Optional[str] = ..., model: _Optional[str] = ..., color: _Optional[str] = ..., material: _Optional[str] = ..., item_condition: _Optional[str] = ..., category: _Optional[str] = ..., location_found: _Optional[str] = ..., route_or_station: _Optional[str] = ..., route_id: _Optional[str] = ..., date_found: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+    image_keys: _containers.RepeatedScalarFieldContainer[str]
+    primary_image_key: str
+    def __init__(self, staff_id: _Optional[str] = ..., item_name: _Optional[str] = ..., item_description: _Optional[str] = ..., item_type: _Optional[str] = ..., brand: _Optional[str] = ..., model: _Optional[str] = ..., color: _Optional[str] = ..., material: _Optional[str] = ..., item_condition: _Optional[str] = ..., category: _Optional[str] = ..., location_found: _Optional[str] = ..., route_or_station: _Optional[str] = ..., route_id: _Optional[str] = ..., date_found: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., image_keys: _Optional[_Iterable[str]] = ..., primary_image_key: _Optional[str] = ...) -> None: ...
+
+class InitFoundItemImageUploadsRequest(_message.Message):
+    __slots__ = ("files",)
+    FILES_FIELD_NUMBER: _ClassVar[int]
+    files: _containers.RepeatedCompositeFieldContainer[UploadFile]
+    def __init__(self, files: _Optional[_Iterable[_Union[UploadFile, _Mapping]]] = ...) -> None: ...
+
+class UploadFile(_message.Message):
+    __slots__ = ("content_type", "size_bytes")
+    CONTENT_TYPE_FIELD_NUMBER: _ClassVar[int]
+    SIZE_BYTES_FIELD_NUMBER: _ClassVar[int]
+    content_type: str
+    size_bytes: int
+    def __init__(self, content_type: _Optional[str] = ..., size_bytes: _Optional[int] = ...) -> None: ...
+
+class InitFoundItemImageUploadsResponse(_message.Message):
+    __slots__ = ("uploads",)
+    UPLOADS_FIELD_NUMBER: _ClassVar[int]
+    uploads: _containers.RepeatedCompositeFieldContainer[UploadInit]
+    def __init__(self, uploads: _Optional[_Iterable[_Union[UploadInit, _Mapping]]] = ...) -> None: ...
+
+class UploadInit(_message.Message):
+    __slots__ = ("s3_key", "upload_url", "headers")
+    class HeadersEntry(_message.Message):
+        __slots__ = ("key", "value")
+        KEY_FIELD_NUMBER: _ClassVar[int]
+        VALUE_FIELD_NUMBER: _ClassVar[int]
+        key: str
+        value: str
+        def __init__(self, key: _Optional[str] = ..., value: _Optional[str] = ...) -> None: ...
+    S3_KEY_FIELD_NUMBER: _ClassVar[int]
+    UPLOAD_URL_FIELD_NUMBER: _ClassVar[int]
+    HEADERS_FIELD_NUMBER: _ClassVar[int]
+    s3_key: str
+    upload_url: str
+    headers: _containers.ScalarMap[str, str]
+    def __init__(self, s3_key: _Optional[str] = ..., upload_url: _Optional[str] = ..., headers: _Optional[_Mapping[str, str]] = ...) -> None: ...
+
+class DeleteFoundItemImageUploadRequest(_message.Message):
+    __slots__ = ("s3_key",)
+    S3_KEY_FIELD_NUMBER: _ClassVar[int]
+    s3_key: str
+    def __init__(self, s3_key: _Optional[str] = ...) -> None: ...
+
+class SearchFoundItemMatchesByEmbeddingRequest(_message.Message):
+    __slots__ = ("query_embedding", "limit", "min_similarity")
+    QUERY_EMBEDDING_FIELD_NUMBER: _ClassVar[int]
+    LIMIT_FIELD_NUMBER: _ClassVar[int]
+    MIN_SIMILARITY_FIELD_NUMBER: _ClassVar[int]
+    query_embedding: _containers.RepeatedScalarFieldContainer[float]
+    limit: int
+    min_similarity: float
+    def __init__(self, query_embedding: _Optional[_Iterable[float]] = ..., limit: _Optional[int] = ..., min_similarity: _Optional[float] = ...) -> None: ...
+
+class SearchFoundItemMatchesByEmbeddingResponse(_message.Message):
+    __slots__ = ("matches",)
+    MATCHES_FIELD_NUMBER: _ClassVar[int]
+    matches: _containers.RepeatedCompositeFieldContainer[FoundItemMatch]
+    def __init__(self, matches: _Optional[_Iterable[_Union[FoundItemMatch, _Mapping]]] = ...) -> None: ...
+
+class FoundItemMatch(_message.Message):
+    __slots__ = ("item", "similarity_score")
+    ITEM_FIELD_NUMBER: _ClassVar[int]
+    SIMILARITY_SCORE_FIELD_NUMBER: _ClassVar[int]
+    item: FoundItem
+    similarity_score: float
+    def __init__(self, item: _Optional[_Union[FoundItem, _Mapping]] = ..., similarity_score: _Optional[float] = ...) -> None: ...
 
 class UpdateFoundItemStatusRequest(_message.Message):
     __slots__ = ("staff_id", "found_item_id", "status")

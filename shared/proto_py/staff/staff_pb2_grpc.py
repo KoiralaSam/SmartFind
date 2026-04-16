@@ -60,6 +60,21 @@ class StaffServiceStub(object):
                 request_serializer=staff__pb2.ListFoundItemsRequest.SerializeToString,
                 response_deserializer=staff__pb2.ListFoundItemsResponse.FromString,
                 _registered_method=True)
+        self.InitFoundItemImageUploads = channel.unary_unary(
+                '/smartfind.staff.v1.StaffService/InitFoundItemImageUploads',
+                request_serializer=staff__pb2.InitFoundItemImageUploadsRequest.SerializeToString,
+                response_deserializer=staff__pb2.InitFoundItemImageUploadsResponse.FromString,
+                _registered_method=True)
+        self.DeleteFoundItemImageUpload = channel.unary_unary(
+                '/smartfind.staff.v1.StaffService/DeleteFoundItemImageUpload',
+                request_serializer=staff__pb2.DeleteFoundItemImageUploadRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
+        self.SearchFoundItemMatchesByEmbedding = channel.unary_unary(
+                '/smartfind.staff.v1.StaffService/SearchFoundItemMatchesByEmbedding',
+                request_serializer=staff__pb2.SearchFoundItemMatchesByEmbeddingRequest.SerializeToString,
+                response_deserializer=staff__pb2.SearchFoundItemMatchesByEmbeddingResponse.FromString,
+                _registered_method=True)
         self.ListClaims = channel.unary_unary(
                 '/smartfind.staff.v1.StaffService/ListClaims',
                 request_serializer=staff__pb2.ListClaimsRequest.SerializeToString,
@@ -116,6 +131,27 @@ class StaffServiceServicer(object):
 
     def ListFoundItems(self, request, context):
         """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def InitFoundItemImageUploads(self, request, context):
+        """Media: found-item image uploads (S3 presigned URLs + cleanup).
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteFoundItemImageUpload(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def SearchFoundItemMatchesByEmbedding(self, request, context):
+        """Internal-only: similarity search over found items using a query embedding.
+        Auth: requires x-internal-token; does NOT require x-forwarded-token.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -177,6 +213,21 @@ def add_StaffServiceServicer_to_server(servicer, server):
                     servicer.ListFoundItems,
                     request_deserializer=staff__pb2.ListFoundItemsRequest.FromString,
                     response_serializer=staff__pb2.ListFoundItemsResponse.SerializeToString,
+            ),
+            'InitFoundItemImageUploads': grpc.unary_unary_rpc_method_handler(
+                    servicer.InitFoundItemImageUploads,
+                    request_deserializer=staff__pb2.InitFoundItemImageUploadsRequest.FromString,
+                    response_serializer=staff__pb2.InitFoundItemImageUploadsResponse.SerializeToString,
+            ),
+            'DeleteFoundItemImageUpload': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteFoundItemImageUpload,
+                    request_deserializer=staff__pb2.DeleteFoundItemImageUploadRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
+            ),
+            'SearchFoundItemMatchesByEmbedding': grpc.unary_unary_rpc_method_handler(
+                    servicer.SearchFoundItemMatchesByEmbedding,
+                    request_deserializer=staff__pb2.SearchFoundItemMatchesByEmbeddingRequest.FromString,
+                    response_serializer=staff__pb2.SearchFoundItemMatchesByEmbeddingResponse.SerializeToString,
             ),
             'ListClaims': grpc.unary_unary_rpc_method_handler(
                     servicer.ListClaims,
@@ -339,6 +390,87 @@ class StaffService(object):
             '/smartfind.staff.v1.StaffService/ListFoundItems',
             staff__pb2.ListFoundItemsRequest.SerializeToString,
             staff__pb2.ListFoundItemsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def InitFoundItemImageUploads(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/smartfind.staff.v1.StaffService/InitFoundItemImageUploads',
+            staff__pb2.InitFoundItemImageUploadsRequest.SerializeToString,
+            staff__pb2.InitFoundItemImageUploadsResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteFoundItemImageUpload(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/smartfind.staff.v1.StaffService/DeleteFoundItemImageUpload',
+            staff__pb2.DeleteFoundItemImageUploadRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def SearchFoundItemMatchesByEmbedding(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/smartfind.staff.v1.StaffService/SearchFoundItemMatchesByEmbedding',
+            staff__pb2.SearchFoundItemMatchesByEmbeddingRequest.SerializeToString,
+            staff__pb2.SearchFoundItemMatchesByEmbeddingResponse.FromString,
             options,
             channel_credentials,
             insecure,

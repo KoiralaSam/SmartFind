@@ -344,6 +344,40 @@ func (h *Handler) DeleteFoundItemImageUpload(ctx context.Context, req *pb.Delete
 	return &emptypb.Empty{}, nil
 }
 
+func (h *Handler) SearchFoundItemMatchesByEmbedding(ctx context.Context, req *pb.SearchFoundItemMatchesByEmbeddingRequest) (*pb.SearchFoundItemMatchesByEmbeddingResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	if len(req.GetQueryEmbedding()) == 0 {
+		return &pb.SearchFoundItemMatchesByEmbeddingResponse{Matches: []*pb.FoundItemMatch{}}, nil
+	}
+
+	limit := int(req.GetLimit())
+	if limit <= 0 {
+		limit = 10
+	}
+
+	matches, err := h.usecase.SearchFoundItemMatchesByEmbedding(ctx, inbound.SearchFoundItemMatchesByEmbeddingInput{
+		QueryEmbedding: req.GetQueryEmbedding(),
+		Limit:          limit,
+		MinSimilarity:  req.GetMinSimilarity(),
+	})
+	if err != nil {
+		return nil, mapDomainError(err)
+	}
+
+	out := make([]*pb.FoundItemMatch, 0, len(matches))
+	for _, m := range matches {
+		it := mapper.FoundItemToPB(&m.Item)
+		attachPresignedImageURLs(ctx, it)
+		out = append(out, &pb.FoundItemMatch{
+			Item:            it,
+			SimilarityScore: m.SimilarityScore,
+		})
+	}
+	return &pb.SearchFoundItemMatchesByEmbeddingResponse{Matches: out}, nil
+}
+
 func (h *Handler) ListClaims(ctx context.Context, req *pb.ListClaimsRequest) (*pb.ListClaimsResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")

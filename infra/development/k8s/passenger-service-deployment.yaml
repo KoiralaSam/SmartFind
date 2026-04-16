@@ -27,6 +27,11 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: PASSENGER_GRPC_ADDR
+            - name: STAFF_SERVICE_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: STAFF_SERVICE_ADDRESS
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -47,6 +52,16 @@ spec:
                 secretKeyRef:
                   name: passenger-service-secrets
                   key: JWT_TTL_SECONDS
+            - name: INTERNAL_SERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: internal-service-secret
+                  key: INTERNAL_SERVICE_SECRET
+            - name: MATCH_MIN_SIMILARITY
+              valueFrom:
+                secretKeyRef:
+                  name: sendgrid-secrets
+                  key: MATCH_MIN_SIMILARITY
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
