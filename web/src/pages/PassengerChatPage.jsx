@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { Bot, LogOut, Send, Sparkles, UserRound } from "lucide-react";
+import { Bot, LogOut, Send, Sparkles } from "lucide-react";
+import { AccountAvatar } from "../components/AccountAvatar";
 import { useAuth } from "../context/useAuth";
 
 const CHAT_BASE_URL = "/api";
@@ -45,7 +45,7 @@ function formatBackendResult(action, data) {
 }
 
 export default function PassengerChatPage() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [messages, setMessages] = useState(() => [
     {
       id: "welcome",
@@ -143,13 +143,24 @@ export default function PassengerChatPage() {
               </p>
             </div>
           </div>
-          <Link
-            to="/"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium transition hover:bg-muted sm:text-sm"
-          >
-            <LogOut className="h-3.5 w-3.5" aria-hidden />
-            End session
-          </Link>
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            {user ? (
+              <>
+                <AccountAvatar user={user} sizeClass="h-8 w-8 sm:h-9 sm:w-9" />
+                <span className="hidden max-w-[100px] truncate text-xs text-muted-foreground sm:inline sm:max-w-[160px] sm:text-sm">
+                  {user.name}
+                </span>
+              </>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => logout()}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium transition hover:bg-muted sm:text-sm"
+            >
+              <LogOut className="h-3.5 w-3.5" aria-hidden />
+              End session
+            </button>
+          </div>
         </div>
       </header>
 
@@ -160,19 +171,16 @@ export default function PassengerChatPage() {
               key={msg.id}
               className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
             >
-              <div
-                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full sm:h-9 sm:w-9 ${
-                  msg.role === "user"
-                    ? "bg-foreground text-background"
-                    : "bg-gradient-to-br from-violet-500 to-indigo-600 text-white"
-                }`}
-              >
-                {msg.role === "user" ? (
-                  <UserRound className="h-4 w-4" aria-hidden />
-                ) : (
+              {msg.role === "user" ? (
+                <AccountAvatar
+                  user={user}
+                  sizeClass="h-8 w-8 sm:h-9 sm:w-9"
+                />
+              ) : (
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-white sm:h-9 sm:w-9">
                   <Bot className="h-4 w-4" aria-hidden />
-                )}
-              </div>
+                </div>
+              )}
               <div
                 className={`max-w-[min(100%,28rem)] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm sm:text-[15px] ${
                   msg.role === "user"

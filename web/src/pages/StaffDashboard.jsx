@@ -13,6 +13,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { AccountAvatar } from "../components/AccountAvatar";
 import { useAuth } from "../context/useAuth";
 import {
   staffCreateFoundItem,
@@ -500,6 +501,7 @@ export default function StaffDashboard() {
           </Link>
 
           <div className="flex items-center gap-3 text-sm">
+            <AccountAvatar user={user} />
             <span className="hidden max-w-[140px] truncate text-muted-foreground sm:inline sm:max-w-[200px]">
               {user?.name}
             </span>

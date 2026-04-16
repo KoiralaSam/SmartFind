@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"math/rand/v2"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"smartfind/shared/env"
 	"smartfind/shared/googleauth"
 	"smartfind/shared/jwt"
+	"smartfind/shared/util"
 )
 
 // PassengerService implements the inbound PassengerUsecase port.
@@ -23,6 +25,18 @@ type PassengerService struct {
 // JWT creation/verification reads JWT_SECRET (and optional JWT_TTL_SECONDS) from the environment.
 func NewPassengerService(repo outbound.PassengerRepository) inbound.PassengerUsecase {
 	return &PassengerService{repo: repo}
+}
+
+// resolvePassengerAvatar prefers the Google profile picture; otherwise keeps a
+// non-empty stored avatar, or assigns a stable random Lego avatar (indices 0–9).
+func resolvePassengerAvatar(googlePicture string, existingAvatar string) string {
+	if s := strings.TrimSpace(googlePicture); s != "" {
+		return s
+	}
+	if s := strings.TrimSpace(existingAvatar); s != "" {
+		return s
+	}
+	return util.GetRandomAvatar(rand.IntN(10))
 }
 
 func (s *PassengerService) Login(ctx context.Context, in inbound.LoginInput) (*inbound.LoginResult, error) {
@@ -44,11 +58,12 @@ func (s *PassengerService) Login(ctx context.Context, in inbound.LoginInput) (*i
 
 	var p *domain.Passenger
 	if existing == nil {
+		avatarURL := resolvePassengerAvatar(profile.PictureURL, "")
 		created, err := s.repo.Create(ctx, domain.Passenger{
 			Email:     email,
 			FullName:  profile.FullName,
 			Phone:     "",
-			AvatarURL: profile.PictureURL,
+			AvatarURL: avatarURL,
 		})
 		if err != nil {
 			return nil, err
@@ -56,9 +71,10 @@ func (s *PassengerService) Login(ctx context.Context, in inbound.LoginInput) (*i
 		p = created
 	} else {
 		p = existing
-		if profile.FullName != p.FullName || profile.PictureURL != p.AvatarURL {
+		nextAvatar := resolvePassengerAvatar(profile.PictureURL, p.AvatarURL)
+		if profile.FullName != p.FullName || nextAvatar != p.AvatarURL {
 			p.FullName = profile.FullName
-			p.AvatarURL = profile.PictureURL
+			p.AvatarURL = nextAvatar
 			if err := s.repo.Update(ctx, *p); err != nil {
 				return nil, err
 			}

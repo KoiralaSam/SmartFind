@@ -1,5 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { Bus, Shield, UserRound } from "lucide-react";
+import { AccountAvatar } from "../components/AccountAvatar";
 import { useAuth } from "../context/useAuth";
 
 /** Transit / bus (Unsplash — free to use). */
@@ -40,6 +41,10 @@ export default function Home() {
 
           {user ? (
             <div className="flex shrink-0 items-center gap-2 sm:gap-3 text-sm">
+              <AccountAvatar
+                user={user}
+                className="border-white/25 bg-black/30"
+              />
               <span className="hidden max-w-[120px] truncate text-white/80 sm:inline sm:max-w-[180px]">
                 {user.name}
               </span>

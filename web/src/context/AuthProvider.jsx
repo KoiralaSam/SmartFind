@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { passengerLogout, staffLogin, staffLogout, staffSignup } from "../api/gateway";
+import { legoAvatarFromSeed } from "../lib/avatarUrl";
 import { AuthContext } from "./auth-context";
 
 const STORAGE_KEY = "smartfind-auth";
@@ -33,6 +34,7 @@ export function AuthProvider({ children }) {
         name: staff.full_name || staff.email.split("@")[0] || "Staff",
         role: "staff",
         authProvider: "password",
+        picture: legoAvatarFromSeed(staff.email),
         sessionToken: payload.session_token || undefined,
       };
       setUser(next);
@@ -96,13 +98,15 @@ export function AuthProvider({ children }) {
     if (!passenger?.email) {
       return { ok: false, error: "Passenger profile was missing in response." };
     }
+    const avatar =
+      (passenger.avatar_url && String(passenger.avatar_url).trim()) || "";
     const next = {
       id: passenger.id,
       email: passenger.email,
       name: passenger.full_name || passenger.email.split("@")[0] || "Passenger",
       role: "passenger",
       authProvider: "google",
-      picture: passenger.avatar_url || undefined,
+      picture: avatar || legoAvatarFromSeed(passenger.email),
       sessionToken: payload.session_token || undefined,
     };
     setUser(next);
