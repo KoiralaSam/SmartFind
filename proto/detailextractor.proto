@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package smartfind.detailextractor.v1;
+
+option go_package = "smartfind/proto;smartfindpb";
+
+service DetailExtractorService {
+  rpc Extract(ExtractRequest) returns (ExtractResponse);
+}
+
+message ExtractRequest {
+  // Base64 data URI (data:image/jpeg;base64,...) or raw base64 bytes.
+  string image_base64 = 1;
+}
+
+message ExtractResponse {
+  string item_name = 1;
+  string item_type = 2;
+  string category = 3;
+  string brand = 4;
+  string model = 5;
+  string color = 6;
+  string material = 7;
+  string item_condition = 8;
+  string item_description = 9;
+}
+

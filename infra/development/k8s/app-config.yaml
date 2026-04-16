@@ -11,3 +11,5 @@ data:
   PASSENGER_SERVICE_ADDRESS: "passenger-service:50051"
   # API Gateway -> staff-service gRPC address (cluster DNS name + port)
   STAFF_SERVICE_ADDRESS: "staff-service:50052"
+  # API Gateway -> detail-extracter-agent gRPC address (cluster DNS name + port)
+  DETAIL_EXTRACTER_SERVICE_ADDRESS: "detail-extracter-agent:50053"

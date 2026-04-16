@@ -4,10 +4,14 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"smartfind/services/staff-service/internal/adapters/primary/grpc/mapper"
+	s3media "smartfind/services/staff-service/internal/adapters/secondary/s3"
 	"smartfind/services/staff-service/internal/core/ports/inbound"
 	"smartfind/services/staff-service/internal/core/ports/outbound"
+	"smartfind/shared/auth"
+	"smartfind/shared/env"
 	pb "smartfind/shared/proto/staff"
 
 	"google.golang.org/grpc/codes"
@@ -22,6 +26,64 @@ type Handler struct {
 
 func New(usecase inbound.StaffUsecase) *Handler {
 	return &Handler{usecase: usecase}
+}
+
+func requireStaffClaims(ctx context.Context) (auth.Claims, error) {
+	claims, err := auth.ClaimsFromContext(ctx)
+	if err != nil {
+		return auth.Claims{}, status.Error(codes.Unauthenticated, "no verified claims")
+	}
+	if claims.ActorType != auth.ActorStaff || strings.TrimSpace(claims.StaffID) == "" {
+		return auth.Claims{}, status.Error(codes.PermissionDenied, "forbidden")
+	}
+	return claims, nil
+}
+
+func enforceStaffIDMatch(reqStaffID string, claims auth.Claims) error {
+	reqStaffID = strings.TrimSpace(reqStaffID)
+	if reqStaffID == "" {
+		return status.Error(codes.InvalidArgument, "staff_id is required")
+	}
+	if reqStaffID != claims.StaffID {
+		return status.Error(codes.PermissionDenied, "staff_id mismatch")
+	}
+	return nil
+}
+
+func attachPresignedImageURLs(ctx context.Context, it *pb.FoundItem) {
+	if it == nil {
+		return
+	}
+	keys := it.GetImageKeys()
+	if len(keys) == 0 {
+		return
+	}
+
+	p, err := s3media.GetPresigner(ctx)
+	if err != nil || p == nil {
+		return
+	}
+
+	urls := make([]string, 0, len(keys))
+	for _, k := range keys {
+		u, err := p.PresignGet(ctx, strings.TrimSpace(k))
+		if err != nil || strings.TrimSpace(u) == "" {
+			continue
+		}
+		urls = append(urls, u)
+	}
+	it.ImageUrls = urls
+
+	primaryKey := strings.TrimSpace(it.GetPrimaryImageKey())
+	if primaryKey != "" {
+		if u, err := p.PresignGet(ctx, primaryKey); err == nil && strings.TrimSpace(u) != "" {
+			it.PrimaryImageUrl = u
+			return
+		}
+	}
+	if len(urls) > 0 {
+		it.PrimaryImageUrl = urls[0]
+	}
 }
 
 func (h *Handler) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginResponse, error) {
@@ -78,8 +140,12 @@ func (h *Handler) CreateFoundItem(ctx context.Context, req *pb.CreateFoundItemRe
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	if strings.TrimSpace(req.GetStaffId()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "staff_id is required")
+	claims, err := requireStaffClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforceStaffIDMatch(req.GetStaffId(), claims); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(req.GetItemName()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "item_name is required")
@@ -99,6 +165,14 @@ func (h *Handler) CreateFoundItem(ctx context.Context, req *pb.CreateFoundItemRe
 		LocationFound:   req.GetLocationFound(),
 		RouteOrStation:  req.GetRouteOrStation(),
 		RouteID:         req.GetRouteId(),
+		ImageKeys:       req.GetImageKeys(),
+		PrimaryImageKey: req.GetPrimaryImageKey(),
+	}
+	if len(in.ImageKeys) > 5 {
+		return nil, status.Error(codes.InvalidArgument, "too many images (max 5)")
+	}
+	if strings.TrimSpace(in.PrimaryImageKey) == "" && len(in.ImageKeys) > 0 {
+		in.PrimaryImageKey = in.ImageKeys[0]
 	}
 	if req.GetDateFound() != nil {
 		in.DateFound = req.GetDateFound().AsTime()
@@ -108,15 +182,21 @@ func (h *Handler) CreateFoundItem(ctx context.Context, req *pb.CreateFoundItemRe
 	if err != nil {
 		return nil, mapDomainError(err)
 	}
-	return mapper.FoundItemToPB(it), nil
+	out := mapper.FoundItemToPB(it)
+	attachPresignedImageURLs(ctx, out)
+	return out, nil
 }
 
 func (h *Handler) UpdateFoundItemStatus(ctx context.Context, req *pb.UpdateFoundItemStatusRequest) (*pb.FoundItem, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	if strings.TrimSpace(req.GetStaffId()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "staff_id is required")
+	claims, err := requireStaffClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforceStaffIDMatch(req.GetStaffId(), claims); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(req.GetFoundItemId()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "found_item_id is required")
@@ -133,30 +213,143 @@ func (h *Handler) UpdateFoundItemStatus(ctx context.Context, req *pb.UpdateFound
 	if err != nil {
 		return nil, mapDomainError(err)
 	}
-	return mapper.FoundItemToPB(it), nil
+	out := mapper.FoundItemToPB(it)
+	attachPresignedImageURLs(ctx, out)
+	return out, nil
 }
 
 func (h *Handler) ListFoundItems(ctx context.Context, req *pb.ListFoundItemsRequest) (*pb.ListFoundItemsResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
+	claims, err := requireStaffClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	postedBy := strings.TrimSpace(req.GetPostedByStaffId())
+	if postedBy != "" && postedBy != claims.StaffID {
+		return nil, status.Error(codes.PermissionDenied, "posted_by_staff_id mismatch")
+	}
+	postedBy = claims.StaffID
 
 	items, err := h.usecase.ListFoundItems(ctx, inbound.ListFoundItemsInput{
 		Status:          req.GetStatus(),
 		RouteID:         req.GetRouteId(),
-		PostedByStaffID: req.GetPostedByStaffId(),
+		PostedByStaffID: postedBy,
 		Limit:           int(req.GetLimit()),
 		Offset:          int(req.GetOffset()),
 	})
 	if err != nil {
 		return nil, mapDomainError(err)
 	}
-	return &pb.ListFoundItemsResponse{Items: mapper.FoundItemsToPB(items)}, nil
+	outItems := mapper.FoundItemsToPB(items)
+	for _, it := range outItems {
+		attachPresignedImageURLs(ctx, it)
+	}
+	return &pb.ListFoundItemsResponse{Items: outItems}, nil
+}
+
+func (h *Handler) InitFoundItemImageUploads(ctx context.Context, req *pb.InitFoundItemImageUploadsRequest) (*pb.InitFoundItemImageUploadsResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	claims, err := requireStaffClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(claims.ForwardedToken) == "" {
+		return nil, status.Error(codes.Unauthenticated, "missing session token")
+	}
+	if len(req.GetFiles()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "files is required")
+	}
+
+	maxSize := int64(env.GetInt("MEDIA_MAX_IMAGE_BYTES", 8*1024*1024))
+	if maxSize <= 0 {
+		maxSize = 8 * 1024 * 1024
+	}
+
+	p, err := s3media.GetPresigner(ctx)
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+
+	environment := env.GetString("ENVIRONMENT", "development")
+	now := time.Now()
+
+	out := &pb.InitFoundItemImageUploadsResponse{Uploads: make([]*pb.UploadInit, 0, len(req.GetFiles()))}
+	for _, f := range req.GetFiles() {
+		if f == nil {
+			return nil, status.Error(codes.InvalidArgument, "file is required")
+		}
+		if f.GetSizeBytes() <= 0 {
+			return nil, status.Error(codes.InvalidArgument, "size_bytes must be > 0")
+		}
+		if f.GetSizeBytes() > maxSize {
+			return nil, status.Error(codes.InvalidArgument, "file too large")
+		}
+		ext, ok := s3media.ContentTypeToExt(f.GetContentType())
+		if !ok {
+			return nil, status.Error(codes.InvalidArgument, "unsupported content_type")
+		}
+
+		key := p.ObjectKey(environment, claims.ForwardedToken, ext, now)
+		signed, err := p.PresignPut(ctx, key)
+		if err != nil {
+			return nil, status.Error(codes.Unavailable, "failed to sign upload url")
+		}
+
+		headers := map[string]string{}
+		if ct := strings.TrimSpace(f.GetContentType()); ct != "" {
+			headers["Content-Type"] = ct
+		}
+		out.Uploads = append(out.Uploads, &pb.UploadInit{
+			S3Key:     signed.Key,
+			UploadUrl: signed.URL,
+			Headers:   headers,
+		})
+	}
+	return out, nil
+}
+
+func (h *Handler) DeleteFoundItemImageUpload(ctx context.Context, req *pb.DeleteFoundItemImageUploadRequest) (*emptypb.Empty, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	claims, err := requireStaffClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	key := strings.TrimSpace(req.GetS3Key())
+	if key == "" {
+		return nil, status.Error(codes.InvalidArgument, "s3_key is required")
+	}
+	if strings.Contains(key, "..") || strings.HasPrefix(key, "/") {
+		return nil, status.Error(codes.InvalidArgument, "invalid s3_key")
+	}
+
+	p, err := s3media.GetPresigner(ctx)
+	if err != nil {
+		return nil, status.Error(codes.FailedPrecondition, err.Error())
+	}
+	environment := env.GetString("ENVIRONMENT", "development")
+	allowedPrefix := p.AllowedSessionPrefix(environment, claims.ForwardedToken)
+	if !strings.HasPrefix(key, allowedPrefix) {
+		return nil, status.Error(codes.PermissionDenied, "forbidden")
+	}
+	if err := p.DeleteObject(ctx, key); err != nil {
+		return nil, status.Error(codes.Unavailable, "failed to delete image")
+	}
+	return &emptypb.Empty{}, nil
 }
 
 func (h *Handler) ListClaims(ctx context.Context, req *pb.ListClaimsRequest) (*pb.ListClaimsResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	if _, err := requireStaffClaims(ctx); err != nil {
+		return nil, err
 	}
 
 	claims, err := h.usecase.ListClaims(ctx, inbound.ListClaimsInput{
@@ -176,8 +369,12 @@ func (h *Handler) ReviewClaim(ctx context.Context, req *pb.ReviewClaimRequest) (
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	if strings.TrimSpace(req.GetStaffId()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "staff_id is required")
+	claims, err := requireStaffClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforceStaffIDMatch(req.GetStaffId(), claims); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(req.GetClaimId()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "claim_id is required")
@@ -201,8 +398,12 @@ func (h *Handler) CreateRoute(ctx context.Context, req *pb.CreateRouteRequest) (
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	if strings.TrimSpace(req.GetStaffId()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "staff_id is required")
+	claims, err := requireStaffClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforceStaffIDMatch(req.GetStaffId(), claims); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(req.GetRouteName()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "route_name is required")
@@ -222,8 +423,12 @@ func (h *Handler) DeleteRoute(ctx context.Context, req *pb.DeleteRouteRequest) (
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	if strings.TrimSpace(req.GetStaffId()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "staff_id is required")
+	claims, err := requireStaffClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforceStaffIDMatch(req.GetStaffId(), claims); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(req.GetRouteId()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "route_id is required")
@@ -242,9 +447,19 @@ func (h *Handler) ListRoutes(ctx context.Context, req *pb.ListRoutesRequest) (*p
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
+	claims, err := requireStaffClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	createdBy := strings.TrimSpace(req.GetCreatedByStaffId())
+	if createdBy != "" && createdBy != claims.StaffID {
+		return nil, status.Error(codes.PermissionDenied, "created_by_staff_id mismatch")
+	}
+	createdBy = claims.StaffID
 
 	routes, err := h.usecase.ListRoutes(ctx, inbound.ListRoutesInput{
-		CreatedByStaffID: req.GetCreatedByStaffId(),
+		CreatedByStaffID: createdBy,
 		Limit:            int(req.GetLimit()),
 		Offset:           int(req.GetOffset()),
 	})

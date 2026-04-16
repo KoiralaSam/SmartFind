@@ -1,5 +1,9 @@
-const GATEWAY_BASE_URL =
-  import.meta.env.VITE_API_GATEWAY_URL || "http://localhost:8081";
+// Prefer same-origin (Vite proxy / ingress) to avoid CORS + cluster-DNS issues
+// like `api-gateway:8081` not resolving in the browser.
+//
+// If you want to hit the gateway directly from the browser, set:
+//   VITE_API_GATEWAY_URL=http://localhost:8081
+const GATEWAY_BASE_URL = import.meta.env.VITE_API_GATEWAY_URL || "";
 
 async function requestJSON(path, options) {
   const res = await fetch(`${GATEWAY_BASE_URL}${path}`, {
@@ -64,5 +68,19 @@ export async function staffUpdateFoundItemStatus(body) {
   return requestJSON("/staff/found-items/status", {
     method: "PUT",
     body: JSON.stringify(body),
+  });
+}
+
+export async function mediaInitUploads(files) {
+  return requestJSON("/media/uploads/init", {
+    method: "POST",
+    body: JSON.stringify({ files }),
+  });
+}
+
+export async function mediaDeleteUpload(s3Key) {
+  return requestJSON("/media/uploads/delete", {
+    method: "POST",
+    body: JSON.stringify({ s3_key: s3Key }),
   });
 }

@@ -3,19 +3,19 @@ package grpcclients
 import (
 	"smartfind/shared/env"
 	"smartfind/shared/grpcclient"
-	pb "smartfind/shared/proto/passenger"
+	pb "smartfind/shared/proto/detailextractor"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-type PassengerGRPCClient struct {
+type DetailExtractorGRPCClient struct {
 	conn   *grpc.ClientConn
-	Client pb.PassengerServiceClient
+	Client pb.DetailExtractorServiceClient
 }
 
-func NewPassengerGRPCClient() (*PassengerGRPCClient, error) {
-	addr := env.GetString("PASSENGER_SERVICE_ADDRESS", "localhost:50051")
+func NewDetailExtractorGRPCClient() (*DetailExtractorGRPCClient, error) {
+	addr := env.GetString("DETAIL_EXTRACTER_SERVICE_ADDRESS", "localhost:50053")
 	conn, err := grpc.NewClient(
 		addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -24,13 +24,13 @@ func NewPassengerGRPCClient() (*PassengerGRPCClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &PassengerGRPCClient{
+	return &DetailExtractorGRPCClient{
 		conn:   conn,
-		Client: pb.NewPassengerServiceClient(conn),
+		Client: pb.NewDetailExtractorServiceClient(conn),
 	}, nil
 }
 
-func (c *PassengerGRPCClient) Close() {
+func (c *DetailExtractorGRPCClient) Close() {
 	if c == nil || c.conn == nil {
 		return
 	}
