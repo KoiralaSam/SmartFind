@@ -23,6 +23,7 @@ type PassengerRepository interface {
 	UpdateLostReportStatus(ctx context.Context, passengerID string, lostReportID string, status string) error
 
 	CreateItemClaim(ctx context.Context, claim inbound.ItemClaim) (*inbound.ItemClaim, error)
+	CreateItemClaimAndMarkLostReportMatched(ctx context.Context, claim inbound.ItemClaim) (*inbound.ItemClaim, error)
 
 	ListNotifications(ctx context.Context, passengerID string, limit int, unreadOnly bool, createdBefore time.Time) ([]inbound.PassengerMatchNotification, error)
 	MarkNotificationsRead(ctx context.Context, passengerID string, notificationIDs []string) error

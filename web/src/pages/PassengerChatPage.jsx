@@ -18,6 +18,10 @@ function parseJsonObject(text) {
 
 function matchImages(match) {
   const candidates = [
+    match?.primary_image_url,
+    match?.primaryImageUrl,
+    match?.primary_image,
+    match?.image,
     ...(Array.isArray(match?.images) ? match.images : []),
     ...(Array.isArray(match?.image_urls) ? match.image_urls : []),
     ...(Array.isArray(match?.photo_urls) ? match.photo_urls : []),
@@ -81,6 +85,12 @@ export default function PassengerChatPage() {
   const [sending, setSending] = useState(false);
   const bottomRef = useRef(null);
   const seenNotificationIdsRef = useRef(new Set());
+  const pendingNotificationIdsRef = useRef(new Set());
+
+  useEffect(() => {
+    seenNotificationIdsRef.current.clear();
+    pendingNotificationIdsRef.current.clear();
+  }, [user?.id]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -104,14 +114,21 @@ export default function PassengerChatPage() {
         const fresh = notes.filter((n) => {
           const id = String(n?.id || "").trim();
           if (!id) return false;
-          return !seenNotificationIdsRef.current.has(id);
+          return (
+            !seenNotificationIdsRef.current.has(id) &&
+            !pendingNotificationIdsRef.current.has(id)
+          );
         });
-        if (fresh.length === 0) return;
+        const idsToMarkRead = notes
+          .map((n) => String(n?.id || "").trim())
+          .filter(Boolean)
+          .filter((id) => pendingNotificationIdsRef.current.has(id));
 
-        fresh.forEach((n) => {
-          const id = String(n?.id || "").trim();
-          if (id) seenNotificationIdsRef.current.add(id);
-        });
+        const freshIds = fresh
+          .map((n) => String(n?.id || "").trim())
+          .filter(Boolean);
+        const markIds = [...new Set([...idsToMarkRead, ...freshIds])];
+        if (markIds.length === 0) return;
 
         const byReport = fresh.reduce((acc, n) => {
           const key = String(n?.lost_report_id || "").trim() || "unknown";
@@ -122,39 +139,49 @@ export default function PassengerChatPage() {
 
         if (cancelled) return;
 
-        const newMessages = Object.entries(byReport).map(
-          ([lostReportId, group]) => {
-            const matches = group.map((n) => ({
-              found_item_id: n.found_item_id,
-              item_name: n.item_name,
-              similarity_score: n.similarity_score,
-              image_urls: n.image_urls,
-              primary_image_url: n.primary_image_url,
-            }));
-            return {
-              id: `n-${Date.now()}-${lostReportId}`,
-              role: "assistant",
-              content:
-                "New potential matches were found for your lost item. Select the closest one to file a claim.",
-              matchCards: {
-                matches,
-                lostReportId: lostReportId === "unknown" ? "" : lostReportId,
-                claimingId: "",
-                claimedId: "",
-              },
-            };
-          },
-        );
+        // Mark these as pending so we don't re-display duplicates while we retry mark-read.
+        markIds.forEach((id) => pendingNotificationIdsRef.current.add(id));
 
-        setMessages((prev) => [...prev, ...newMessages]);
+        if (Object.keys(byReport).length > 0) {
+          const newMessages = Object.entries(byReport).map(
+            ([lostReportId, group]) => {
+              const matches = group.map((n) => ({
+                found_item_id: n.found_item_id,
+                item_name: n.item_name,
+                similarity_score: n.similarity_score,
+                image_urls: n.image_urls,
+                primary_image_url: n.primary_image_url,
+              }));
+              return {
+                id: `n-${Date.now()}-${lostReportId}`,
+                role: "assistant",
+                content:
+                  "New potential matches were found for your lost item. Select the closest one to file a claim.",
+                matchCards: {
+                  matches,
+                  lostReportId: lostReportId === "unknown" ? "" : lostReportId,
+                  claimingId: "",
+                  claimedId: "",
+                },
+              };
+            },
+          );
+          setMessages((prev) => [...prev, ...newMessages]);
+        }
 
-        const ids = fresh.map((n) => n.id).filter(Boolean);
-        await fetch(`/passenger/notifications/read`, {
+        const readRes = await fetch(`/passenger/notifications/read`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ notification_ids: ids }),
+          body: JSON.stringify({ notification_ids: markIds }),
         }).catch(() => null);
+
+        if (readRes?.ok) {
+          markIds.forEach((id) => {
+            pendingNotificationIdsRef.current.delete(id);
+            seenNotificationIdsRef.current.add(id);
+          });
+        }
       } catch {
         // ignore polling failures (offline, gateway down, etc.)
       }
