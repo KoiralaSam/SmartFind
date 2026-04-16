@@ -23,7 +23,6 @@ func InternalAuth() grpc.UnaryServerInterceptor {
 		if internal == "" || internal != expected {
 			return nil, status.Error(codes.Unauthenticated, "missing or invalid internal token")
 		}
-
 		return handler(ctx, req)
 	}
 }

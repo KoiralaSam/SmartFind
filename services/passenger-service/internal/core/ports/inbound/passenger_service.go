@@ -67,6 +67,8 @@ type FoundItemMatch struct {
 	DateFound       time.Time
 	Status          string
 	SimilarityScore float64
+	ImageURLs       []string
+	PrimaryImageURL string
 }
 
 type SearchFoundItemsInput struct {
@@ -93,6 +95,31 @@ type ItemClaim struct {
 	UpdatedAt           time.Time
 }
 
+type PassengerMatchNotification struct {
+	ID              string
+	PassengerID     string
+	LostReportID    string
+	FoundItemID     string
+	SimilarityScore float64
+	ItemName        string
+	ImageURLs       []string
+	PrimaryImageURL string
+	CreatedAt       time.Time
+	ReadAt          time.Time
+}
+
+type ListNotificationsInput struct {
+	PassengerID   string
+	Limit         int
+	UnreadOnly    bool
+	CreatedBefore time.Time
+}
+
+type MarkNotificationReadInput struct {
+	PassengerID     string
+	NotificationIDs []string
+}
+
 // LoginInput is the Google Sign-In credential. The service verifies the ID token and upserts the passenger.
 type LoginInput struct {
 	IDToken string
@@ -113,4 +140,6 @@ type PassengerUsecase interface {
 	DeleteLostReport(ctx context.Context, passengerID, lostReportID string) error
 	SearchFoundItemMatches(ctx context.Context, in SearchFoundItemsInput) ([]FoundItemMatch, error)
 	FileClaim(ctx context.Context, in FileClaimInput) (*ItemClaim, error)
+	ListNotifications(ctx context.Context, in ListNotificationsInput) ([]PassengerMatchNotification, error)
+	MarkNotificationRead(ctx context.Context, in MarkNotificationReadInput) error
 }

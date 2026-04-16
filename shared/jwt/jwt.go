@@ -17,9 +17,10 @@ import (
 // email: user email
 // exp: expiration (unix seconds)
 type Claims struct {
-	Sub string `json:"sub"`
-	Email string `json:"email"`
-	Exp int64  `json:"exp"`
+	ActorType string `json:"actorType,omitempty"`
+	Sub       string `json:"sub"`
+	Email     string `json:"email"`
+	Exp       int64  `json:"exp"`
 }
 
 var (
@@ -98,6 +99,37 @@ func GenerateUserToken(userID string, email string) (string, error) {
 	})
 }
 
+func GenerateActorToken(actorType string, userID string, email string) (string, error) {
+	secret, err := secretFromEnv()
+	if err != nil {
+		return "", err
+	}
+	ttl := ttlFromEnv()
+	if strings.TrimSpace(userID) == "" {
+		return "", ErrMissingSubject
+	}
+	if strings.TrimSpace(email) == "" {
+		return "", errors.New("email is required")
+	}
+	if strings.TrimSpace(actorType) == "" {
+		return "", errors.New("actorType is required")
+	}
+	return GenerateToken(secret, Claims{
+		ActorType: strings.TrimSpace(actorType),
+		Sub:       userID,
+		Email:     strings.TrimSpace(strings.ToLower(email)),
+		Exp:       time.Now().Add(ttl).Unix(),
+	})
+}
+
+func GenerateStaffToken(staffID string, email string) (string, error) {
+	return GenerateActorToken("staff", staffID, email)
+}
+
+func GeneratePassengerToken(passengerID string, email string) (string, error) {
+	return GenerateActorToken("passenger", passengerID, email)
+}
+
 // VerifyHS256 verifies signature + exp and returns claims.
 func VerifyToken(secret string, token string) (Claims, error) {
 	if strings.TrimSpace(secret) == "" {
@@ -154,4 +186,3 @@ func VerifyTokenFromEnv(token string) (Claims, error) {
 	}
 	return VerifyToken(secret, token)
 }
-

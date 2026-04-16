@@ -20,18 +20,19 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	StaffService_Login_FullMethodName                      = "/smartfind.staff.v1.StaffService/Login"
-	StaffService_CreateStaff_FullMethodName                = "/smartfind.staff.v1.StaffService/CreateStaff"
-	StaffService_CreateFoundItem_FullMethodName            = "/smartfind.staff.v1.StaffService/CreateFoundItem"
-	StaffService_UpdateFoundItemStatus_FullMethodName      = "/smartfind.staff.v1.StaffService/UpdateFoundItemStatus"
-	StaffService_ListFoundItems_FullMethodName             = "/smartfind.staff.v1.StaffService/ListFoundItems"
-	StaffService_InitFoundItemImageUploads_FullMethodName  = "/smartfind.staff.v1.StaffService/InitFoundItemImageUploads"
-	StaffService_DeleteFoundItemImageUpload_FullMethodName = "/smartfind.staff.v1.StaffService/DeleteFoundItemImageUpload"
-	StaffService_ListClaims_FullMethodName                 = "/smartfind.staff.v1.StaffService/ListClaims"
-	StaffService_ReviewClaim_FullMethodName                = "/smartfind.staff.v1.StaffService/ReviewClaim"
-	StaffService_CreateRoute_FullMethodName                = "/smartfind.staff.v1.StaffService/CreateRoute"
-	StaffService_DeleteRoute_FullMethodName                = "/smartfind.staff.v1.StaffService/DeleteRoute"
-	StaffService_ListRoutes_FullMethodName                 = "/smartfind.staff.v1.StaffService/ListRoutes"
+	StaffService_Login_FullMethodName                             = "/smartfind.staff.v1.StaffService/Login"
+	StaffService_CreateStaff_FullMethodName                       = "/smartfind.staff.v1.StaffService/CreateStaff"
+	StaffService_CreateFoundItem_FullMethodName                   = "/smartfind.staff.v1.StaffService/CreateFoundItem"
+	StaffService_UpdateFoundItemStatus_FullMethodName             = "/smartfind.staff.v1.StaffService/UpdateFoundItemStatus"
+	StaffService_ListFoundItems_FullMethodName                    = "/smartfind.staff.v1.StaffService/ListFoundItems"
+	StaffService_InitFoundItemImageUploads_FullMethodName         = "/smartfind.staff.v1.StaffService/InitFoundItemImageUploads"
+	StaffService_DeleteFoundItemImageUpload_FullMethodName        = "/smartfind.staff.v1.StaffService/DeleteFoundItemImageUpload"
+	StaffService_SearchFoundItemMatchesByEmbedding_FullMethodName = "/smartfind.staff.v1.StaffService/SearchFoundItemMatchesByEmbedding"
+	StaffService_ListClaims_FullMethodName                        = "/smartfind.staff.v1.StaffService/ListClaims"
+	StaffService_ReviewClaim_FullMethodName                       = "/smartfind.staff.v1.StaffService/ReviewClaim"
+	StaffService_CreateRoute_FullMethodName                       = "/smartfind.staff.v1.StaffService/CreateRoute"
+	StaffService_DeleteRoute_FullMethodName                       = "/smartfind.staff.v1.StaffService/DeleteRoute"
+	StaffService_ListRoutes_FullMethodName                        = "/smartfind.staff.v1.StaffService/ListRoutes"
 )
 
 // StaffServiceClient is the client API for StaffService service.
@@ -46,6 +47,9 @@ type StaffServiceClient interface {
 	// Media: found-item image uploads (S3 presigned URLs + cleanup).
 	InitFoundItemImageUploads(ctx context.Context, in *InitFoundItemImageUploadsRequest, opts ...grpc.CallOption) (*InitFoundItemImageUploadsResponse, error)
 	DeleteFoundItemImageUpload(ctx context.Context, in *DeleteFoundItemImageUploadRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	// Internal-only: similarity search over found items using a query embedding.
+	// Auth: requires x-internal-token; does NOT require x-forwarded-token.
+	SearchFoundItemMatchesByEmbedding(ctx context.Context, in *SearchFoundItemMatchesByEmbeddingRequest, opts ...grpc.CallOption) (*SearchFoundItemMatchesByEmbeddingResponse, error)
 	ListClaims(ctx context.Context, in *ListClaimsRequest, opts ...grpc.CallOption) (*ListClaimsResponse, error)
 	ReviewClaim(ctx context.Context, in *ReviewClaimRequest, opts ...grpc.CallOption) (*ItemClaim, error)
 	CreateRoute(ctx context.Context, in *CreateRouteRequest, opts ...grpc.CallOption) (*Route, error)
@@ -131,6 +135,16 @@ func (c *staffServiceClient) DeleteFoundItemImageUpload(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *staffServiceClient) SearchFoundItemMatchesByEmbedding(ctx context.Context, in *SearchFoundItemMatchesByEmbeddingRequest, opts ...grpc.CallOption) (*SearchFoundItemMatchesByEmbeddingResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SearchFoundItemMatchesByEmbeddingResponse)
+	err := c.cc.Invoke(ctx, StaffService_SearchFoundItemMatchesByEmbedding_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *staffServiceClient) ListClaims(ctx context.Context, in *ListClaimsRequest, opts ...grpc.CallOption) (*ListClaimsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListClaimsResponse)
@@ -193,6 +207,9 @@ type StaffServiceServer interface {
 	// Media: found-item image uploads (S3 presigned URLs + cleanup).
 	InitFoundItemImageUploads(context.Context, *InitFoundItemImageUploadsRequest) (*InitFoundItemImageUploadsResponse, error)
 	DeleteFoundItemImageUpload(context.Context, *DeleteFoundItemImageUploadRequest) (*emptypb.Empty, error)
+	// Internal-only: similarity search over found items using a query embedding.
+	// Auth: requires x-internal-token; does NOT require x-forwarded-token.
+	SearchFoundItemMatchesByEmbedding(context.Context, *SearchFoundItemMatchesByEmbeddingRequest) (*SearchFoundItemMatchesByEmbeddingResponse, error)
 	ListClaims(context.Context, *ListClaimsRequest) (*ListClaimsResponse, error)
 	ReviewClaim(context.Context, *ReviewClaimRequest) (*ItemClaim, error)
 	CreateRoute(context.Context, *CreateRouteRequest) (*Route, error)
@@ -228,6 +245,9 @@ func (UnimplementedStaffServiceServer) InitFoundItemImageUploads(context.Context
 }
 func (UnimplementedStaffServiceServer) DeleteFoundItemImageUpload(context.Context, *DeleteFoundItemImageUploadRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteFoundItemImageUpload not implemented")
+}
+func (UnimplementedStaffServiceServer) SearchFoundItemMatchesByEmbedding(context.Context, *SearchFoundItemMatchesByEmbeddingRequest) (*SearchFoundItemMatchesByEmbeddingResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SearchFoundItemMatchesByEmbedding not implemented")
 }
 func (UnimplementedStaffServiceServer) ListClaims(context.Context, *ListClaimsRequest) (*ListClaimsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListClaims not implemented")
@@ -391,6 +411,24 @@ func _StaffService_DeleteFoundItemImageUpload_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _StaffService_SearchFoundItemMatchesByEmbedding_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SearchFoundItemMatchesByEmbeddingRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(StaffServiceServer).SearchFoundItemMatchesByEmbedding(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: StaffService_SearchFoundItemMatchesByEmbedding_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(StaffServiceServer).SearchFoundItemMatchesByEmbedding(ctx, req.(*SearchFoundItemMatchesByEmbeddingRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _StaffService_ListClaims_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListClaimsRequest)
 	if err := dec(in); err != nil {
@@ -515,6 +553,10 @@ var StaffService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteFoundItemImageUpload",
 			Handler:    _StaffService_DeleteFoundItemImageUpload_Handler,
+		},
+		{
+			MethodName: "SearchFoundItemMatchesByEmbedding",
+			Handler:    _StaffService_SearchFoundItemMatchesByEmbedding_Handler,
 		},
 		{
 			MethodName: "ListClaims",

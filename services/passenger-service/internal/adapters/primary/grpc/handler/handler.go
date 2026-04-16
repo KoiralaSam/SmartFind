@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"smartfind/services/passenger-service/internal/adapters/primary/grpc/mapper"
 	"smartfind/services/passenger-service/internal/core/ports/inbound"
+	"smartfind/shared/auth"
 	pb "smartfind/shared/proto/passenger"
 
 	"google.golang.org/grpc/codes"
@@ -21,6 +23,25 @@ type Handler struct {
 
 func New(usecase inbound.PassengerUsecase) *Handler {
 	return &Handler{usecase: usecase}
+}
+
+func requirePassengerClaims(ctx context.Context) (auth.Claims, error) {
+	claims, err := auth.ClaimsFromContext(ctx)
+	if err != nil {
+		return auth.Claims{}, status.Error(codes.Unauthenticated, "no verified claims")
+	}
+	if claims.ActorType != auth.ActorPassenger || strings.TrimSpace(claims.PassengerID) == "" {
+		return auth.Claims{}, status.Error(codes.PermissionDenied, "forbidden")
+	}
+	return claims, nil
+}
+
+func enforcePassengerIDMatch(reqPassengerID string, claims auth.Claims) error {
+	reqPassengerID = strings.TrimSpace(reqPassengerID)
+	if reqPassengerID != "" && reqPassengerID != claims.PassengerID {
+		return status.Error(codes.PermissionDenied, "passenger_id mismatch")
+	}
+	return nil
 }
 
 func (h *Handler) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginResponse, error) {
@@ -50,15 +71,19 @@ func (h *Handler) CreateLostReport(ctx context.Context, req *pb.CreateLostReport
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	if strings.TrimSpace(req.GetPassengerId()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "passenger_id is required")
+	claims, err := requirePassengerClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforcePassengerIDMatch(req.GetPassengerId(), claims); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(req.GetItemName()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "item_name is required")
 	}
 
 	in := inbound.CreateLostReportInput{
-		PassengerID:     req.GetPassengerId(),
+		PassengerID:     claims.PassengerID,
 		ItemName:        req.GetItemName(),
 		ItemDescription: req.GetItemDescription(),
 		ItemType:        req.GetItemType(),
@@ -87,12 +112,16 @@ func (h *Handler) ListLostReports(ctx context.Context, req *pb.ListLostReportsRe
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	if strings.TrimSpace(req.GetPassengerId()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "passenger_id is required")
+	claims, err := requirePassengerClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforcePassengerIDMatch(req.GetPassengerId(), claims); err != nil {
+		return nil, err
 	}
 
 	reports, err := h.usecase.ListLostReports(ctx, inbound.ListLostReportsInput{
-		PassengerID: req.GetPassengerId(),
+		PassengerID: claims.PassengerID,
 		Status:      req.GetStatus(),
 	})
 	if err != nil {
@@ -105,14 +134,18 @@ func (h *Handler) DeleteLostReport(ctx context.Context, req *pb.DeleteLostReport
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	if strings.TrimSpace(req.GetPassengerId()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "passenger_id is required")
+	claims, err := requirePassengerClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforcePassengerIDMatch(req.GetPassengerId(), claims); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(req.GetLostReportId()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "lost_report_id is required")
 	}
 
-	if err := h.usecase.DeleteLostReport(ctx, req.GetPassengerId(), req.GetLostReportId()); err != nil {
+	if err := h.usecase.DeleteLostReport(ctx, claims.PassengerID, req.GetLostReportId()); err != nil {
 		return nil, mapDomainError(err)
 	}
 	return &emptypb.Empty{}, nil
@@ -122,8 +155,12 @@ func (h *Handler) SearchFoundItemMatches(ctx context.Context, req *pb.SearchFoun
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	if strings.TrimSpace(req.GetPassengerId()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "passenger_id is required")
+	claims, err := requirePassengerClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforcePassengerIDMatch(req.GetPassengerId(), claims); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(req.GetLostReportId()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "lost_report_id is required")
@@ -135,7 +172,7 @@ func (h *Handler) SearchFoundItemMatches(ctx context.Context, req *pb.SearchFoun
 	}
 
 	matches, err := h.usecase.SearchFoundItemMatches(ctx, inbound.SearchFoundItemsInput{
-		PassengerID:  req.GetPassengerId(),
+		PassengerID:  claims.PassengerID,
 		LostReportID: req.GetLostReportId(),
 		Limit:        limit,
 	})
@@ -149,8 +186,12 @@ func (h *Handler) FileClaim(ctx context.Context, req *pb.FileClaimRequest) (*pb.
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	if strings.TrimSpace(req.GetPassengerId()) == "" {
-		return nil, status.Error(codes.InvalidArgument, "passenger_id is required")
+	claims, err := requirePassengerClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforcePassengerIDMatch(req.GetPassengerId(), claims); err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(req.GetFoundItemId()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "found_item_id is required")
@@ -160,7 +201,7 @@ func (h *Handler) FileClaim(ctx context.Context, req *pb.FileClaimRequest) (*pb.
 	}
 
 	claim, err := h.usecase.FileClaim(ctx, inbound.FileClaimInput{
-		PassengerID:  req.GetPassengerId(),
+		PassengerID:  claims.PassengerID,
 		FoundItemID:  req.GetFoundItemId(),
 		LostReportID: req.GetLostReportId(),
 		Message:      req.GetMessage(),
@@ -169,6 +210,58 @@ func (h *Handler) FileClaim(ctx context.Context, req *pb.FileClaimRequest) (*pb.
 		return nil, mapDomainError(err)
 	}
 	return mapper.ItemClaimToPB(claim), nil
+}
+
+func (h *Handler) ListNotifications(ctx context.Context, req *pb.ListNotificationsRequest) (*pb.ListNotificationsResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	claims, err := requirePassengerClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	limit := int(req.GetLimit())
+	if limit <= 0 {
+		limit = 20
+	}
+
+	var createdBefore time.Time
+	if req.GetCreatedBefore() != nil {
+		createdBefore = req.GetCreatedBefore().AsTime()
+	}
+
+	notes, err := h.usecase.ListNotifications(ctx, inbound.ListNotificationsInput{
+		PassengerID:   claims.PassengerID,
+		Limit:         limit,
+		UnreadOnly:    req.GetUnreadOnly(),
+		CreatedBefore: createdBefore,
+	})
+	if err != nil {
+		return nil, mapDomainError(err)
+	}
+
+	return &pb.ListNotificationsResponse{
+		Notifications: mapper.PassengerMatchNotificationsToPB(notes),
+	}, nil
+}
+
+func (h *Handler) MarkNotificationRead(ctx context.Context, req *pb.MarkNotificationReadRequest) (*emptypb.Empty, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	claims, err := requirePassengerClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := h.usecase.MarkNotificationRead(ctx, inbound.MarkNotificationReadInput{
+		PassengerID:     claims.PassengerID,
+		NotificationIDs: req.GetNotificationIds(),
+	}); err != nil {
+		return nil, mapDomainError(err)
+	}
+	return &emptypb.Empty{}, nil
 }
 
 func mapDomainError(err error) error {

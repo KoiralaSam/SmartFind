@@ -56,7 +56,7 @@ func (s *StaffService) Login(ctx context.Context, in inbound.LoginInput) (*inbou
 		return nil, errors.New("invalid email or password")
 	}
 
-	token, err := jwt.GenerateUserToken(record.ID, record.Email)
+	token, err := jwt.GenerateStaffToken(record.ID, record.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -209,6 +209,30 @@ func (s *StaffService) ListFoundItems(ctx context.Context, in inbound.ListFoundI
 		in2.Status = st
 	}
 	return s.repo.ListFoundItems(ctx, in2)
+}
+
+func (s *StaffService) SearchFoundItemMatchesByEmbedding(ctx context.Context, in inbound.SearchFoundItemMatchesByEmbeddingInput) ([]inbound.FoundItemMatch, error) {
+	limit := in.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	minSim := in.MinSimilarity
+	if minSim < 0 {
+		minSim = 0
+	}
+	if minSim > 1 {
+		minSim = 1
+	}
+
+	if len(in.QueryEmbedding) == 0 {
+		return []inbound.FoundItemMatch{}, nil
+	}
+
+	return s.repo.SearchFoundItemMatchesByEmbedding(ctx, in.QueryEmbedding, limit, minSim)
 }
 
 func (s *StaffService) ListClaims(ctx context.Context, in inbound.ListClaimsInput) ([]inbound.ItemClaim, error) {

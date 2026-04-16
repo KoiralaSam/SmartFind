@@ -11,7 +11,6 @@ import (
 	"smartfind/services/passenger-service/internal/core/domain"
 	"smartfind/services/passenger-service/internal/core/ports/inbound"
 	"smartfind/services/passenger-service/internal/core/ports/outbound"
-	"smartfind/shared/pgvector"
 )
 
 type PassengerRepository struct {
@@ -182,93 +181,6 @@ func (r *PassengerRepository) DeleteLostReport(ctx context.Context, passengerID 
 		WHERE id = $1 AND reporter_passenger_id = $2
 	`, lostReportID, passengerID)
 	return err
-}
-
-func (r *PassengerRepository) SearchFoundItemMatches(ctx context.Context, passengerID string, lostReportID string, limit int) ([]inbound.FoundItemMatch, error) {
-	if limit <= 0 {
-		limit = 10
-	}
-
-	var category string
-	var itemName string
-	err := r.pool.QueryRow(ctx, `
-		SELECT category, item_name
-		FROM lost_reports
-		WHERE id = $1 AND reporter_passenger_id = $2
-	`, lostReportID, passengerID).Scan(&category, &itemName)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return []inbound.FoundItemMatch{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	// Prefer vector similarity search when embeddings are available; fall back to simple filtering otherwise.
-	vecMatches, err := pgvector.SearchFoundItemMatches(ctx, r.pool, lostReportID, passengerID, limit)
-	if err != nil {
-		return nil, err
-	}
-	if len(vecMatches) > 0 {
-		out := make([]inbound.FoundItemMatch, 0, len(vecMatches))
-		for _, vm := range vecMatches {
-			out = append(out, inbound.FoundItemMatch{
-				FoundItemID:     vm.FoundItemID,
-				ItemName:        vm.ItemName,
-				ItemDescription: vm.ItemDescription,
-				ItemType:        vm.ItemType,
-				Brand:           vm.Brand,
-				Model:           vm.Model,
-				Color:           vm.Color,
-				Material:        vm.Material,
-				ItemCondition:   vm.ItemCondition,
-				Category:        vm.Category,
-				LocationFound:   vm.LocationFound,
-				RouteOrStation:  vm.RouteOrStation,
-				RouteID:         vm.RouteID,
-				DateFound:       vm.DateFound,
-				Status:          vm.Status,
-				SimilarityScore: vm.SimilarityScore,
-			})
-		}
-		return out, nil
-	}
-
-	rows, err := r.pool.Query(ctx, `
-		SELECT
-			id::text,
-			item_name, item_description, item_type, brand, model, color, material, item_condition,
-			category, location_found, route_or_station, COALESCE(route_id::text, ''), date_found,
-			status
-		FROM found_items
-		WHERE status = 'unclaimed' AND (category = $1 OR item_name = $2)
-		ORDER BY created_at DESC
-		LIMIT $3
-	`, category, itemName, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	out := make([]inbound.FoundItemMatch, 0)
-	for rows.Next() {
-		var m inbound.FoundItemMatch
-		var routeID string
-		if scanErr := rows.Scan(
-			&m.FoundItemID,
-			&m.ItemName, &m.ItemDescription, &m.ItemType, &m.Brand, &m.Model, &m.Color, &m.Material, &m.ItemCondition,
-			&m.Category, &m.LocationFound, &m.RouteOrStation, &routeID, &m.DateFound,
-			&m.Status,
-		); scanErr != nil {
-			return nil, scanErr
-		}
-		m.RouteID = routeID
-		m.SimilarityScore = 0
-		out = append(out, m)
-	}
-	if rows.Err() != nil {
-		return nil, rows.Err()
-	}
-	return out, nil
 }
 
 func (r *PassengerRepository) CreateItemClaim(ctx context.Context, claim inbound.ItemClaim) (*inbound.ItemClaim, error) {

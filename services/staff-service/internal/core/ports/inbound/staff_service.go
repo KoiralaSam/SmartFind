@@ -91,6 +91,17 @@ type ListFoundItemsInput struct {
 	Offset          int
 }
 
+type SearchFoundItemMatchesByEmbeddingInput struct {
+	QueryEmbedding []float32
+	Limit          int
+	MinSimilarity  float64
+}
+
+type FoundItemMatch struct {
+	Item            FoundItem
+	SimilarityScore float64
+}
+
 // ItemClaim mirrors item_claims table (migrations 000001).
 type ItemClaim struct {
 	ID                  string
@@ -154,6 +165,7 @@ type StaffUsecase interface {
 	CreateFoundItem(ctx context.Context, in CreateFoundItemInput) (*FoundItem, error)
 	UpdateFoundItemStatus(ctx context.Context, in UpdateFoundItemStatusInput) (*FoundItem, error)
 	ListFoundItems(ctx context.Context, in ListFoundItemsInput) ([]FoundItem, error)
+	SearchFoundItemMatchesByEmbedding(ctx context.Context, in SearchFoundItemMatchesByEmbeddingInput) ([]FoundItemMatch, error)
 
 	// Claims
 	ListClaims(ctx context.Context, in ListClaimsInput) ([]ItemClaim, error)

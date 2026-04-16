@@ -27,7 +27,7 @@ func Claims(publicMethods map[string]bool) grpc.UnaryServerInterceptor {
 			return nil, status.Error(codes.Unauthenticated, "missing forwarded token")
 		}
 
-		claims, err := auth.VerifyStaffSessionTokenFromEnv(forwarded)
+		claims, err := auth.VerifyPassengerSessionTokenFromEnv(forwarded)
 		if err != nil {
 			return nil, status.Error(codes.Unauthenticated, "invalid forwarded token")
 		}

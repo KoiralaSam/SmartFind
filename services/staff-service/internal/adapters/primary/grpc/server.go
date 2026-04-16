@@ -15,8 +15,9 @@ func NewServer(usecase inbound.StaffUsecase) *grpc.Server {
 			interceptor.Recovery(),
 			interceptor.InternalAuth(),
 			interceptor.Claims(map[string]bool{
-				"/smartfind.staff.v1.StaffService/Login":       true,
-				"/smartfind.staff.v1.StaffService/CreateStaff": true,
+				"/smartfind.staff.v1.StaffService/Login":                             true,
+				"/smartfind.staff.v1.StaffService/CreateStaff":                       true,
+				"/smartfind.staff.v1.StaffService/SearchFoundItemMatchesByEmbedding": true,
 			}),
 			interceptor.Logging(),
 		),

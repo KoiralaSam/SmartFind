@@ -39,6 +39,12 @@ docker_build(
 )
 
 docker_build(
+  "smartfind/passenger-match-worker",
+  ".",
+  dockerfile="./infra/development/docker/passenger-match-worker.Dockerfile",
+)
+
+docker_build(
   "smartfind/staff-service",
   ".",
   dockerfile="./infra/development/docker/staff-service.Dockerfile",
@@ -51,6 +57,7 @@ k8s_yaml("./infra/development/k8s/detail-extracter-agent-deployment.yaml")
 k8s_yaml("./infra/development/k8s/predictive-analytics-agent-deployment.yaml")
 k8s_yaml("./infra/development/k8s/passenger-service-deployment.yaml")
 k8s_yaml("./infra/development/k8s/staff-service-deployment.yaml")
+k8s_yaml("./infra/development/k8s/passenger-match-worker-cronjob.yaml")
 k8s_resource("postgres", port_forwards=5432, labels="infrastructure")
 
 local_resource(

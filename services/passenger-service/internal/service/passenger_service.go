@@ -14,17 +14,20 @@ import (
 	"smartfind/shared/googleauth"
 	"smartfind/shared/jwt"
 	"smartfind/shared/util"
+
+	staffpb "smartfind/shared/proto/staff"
 )
 
 // PassengerService implements the inbound PassengerUsecase port.
 type PassengerService struct {
-	repo outbound.PassengerRepository
+	repo        outbound.PassengerRepository
+	staffClient staffpb.StaffServiceClient
 }
 
 // NewPassengerService wires the passenger use case.
 // JWT creation/verification reads JWT_SECRET (and optional JWT_TTL_SECONDS) from the environment.
-func NewPassengerService(repo outbound.PassengerRepository) inbound.PassengerUsecase {
-	return &PassengerService{repo: repo}
+func NewPassengerService(repo outbound.PassengerRepository, staffClient staffpb.StaffServiceClient) inbound.PassengerUsecase {
+	return &PassengerService{repo: repo, staffClient: staffClient}
 }
 
 // resolvePassengerAvatar prefers the Google profile picture; otherwise keeps a
@@ -81,7 +84,7 @@ func (s *PassengerService) Login(ctx context.Context, in inbound.LoginInput) (*i
 		}
 	}
 
-	token, err := jwt.GenerateUserToken(p.ID, p.Email)
+	token, err := jwt.GeneratePassengerToken(p.ID, p.Email)
 	if err != nil {
 		return nil, err
 	}
@@ -140,11 +143,71 @@ func (s *PassengerService) DeleteLostReport(ctx context.Context, passengerID, lo
 }
 
 func (s *PassengerService) SearchFoundItemMatches(ctx context.Context, in inbound.SearchFoundItemsInput) ([]inbound.FoundItemMatch, error) {
-	matches, err := s.repo.SearchFoundItemMatches(ctx, in.PassengerID, in.LostReportID, in.Limit)
+	if s.staffClient == nil {
+		return nil, errors.New("staff service client is not configured")
+	}
+	limit := in.Limit
+	if limit <= 0 {
+		limit = 10
+	}
+
+	embedding, err := s.repo.GetLostReportEmbeddingForPassenger(ctx, in.PassengerID, in.LostReportID)
 	if err != nil {
 		return nil, err
 	}
-	return matches, nil
+	if len(embedding) == 0 {
+		return []inbound.FoundItemMatch{}, nil
+	}
+
+	minSim := env.GetFloat("MATCH_MIN_SIMILARITY", 0.82)
+	if minSim < 0 {
+		minSim = 0
+	}
+	if minSim > 1 {
+		minSim = 1
+	}
+
+	resp, err := s.staffClient.SearchFoundItemMatchesByEmbedding(ctx, &staffpb.SearchFoundItemMatchesByEmbeddingRequest{
+		QueryEmbedding: embedding,
+		Limit:          int32(limit),
+		MinSimilarity:  minSim,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]inbound.FoundItemMatch, 0, len(resp.GetMatches()))
+	for _, m := range resp.GetMatches() {
+		if m == nil || m.GetItem() == nil {
+			continue
+		}
+		it := m.GetItem()
+		var dt time.Time
+		if it.GetDateFound() != nil {
+			dt = it.GetDateFound().AsTime()
+		}
+		out = append(out, inbound.FoundItemMatch{
+			FoundItemID:     it.GetId(),
+			ItemName:        it.GetItemName(),
+			ItemDescription: it.GetItemDescription(),
+			ItemType:        it.GetItemType(),
+			Brand:           it.GetBrand(),
+			Model:           it.GetModel(),
+			Color:           it.GetColor(),
+			Material:        it.GetMaterial(),
+			ItemCondition:   it.GetItemCondition(),
+			Category:        it.GetCategory(),
+			LocationFound:   it.GetLocationFound(),
+			RouteOrStation:  it.GetRouteOrStation(),
+			RouteID:         it.GetRouteId(),
+			DateFound:       dt,
+			Status:          it.GetStatus(),
+			SimilarityScore: m.GetSimilarityScore(),
+			ImageURLs:       it.GetImageUrls(),
+			PrimaryImageURL: it.GetPrimaryImageUrl(),
+		})
+	}
+	return out, nil
 }
 
 func (s *PassengerService) FileClaim(ctx context.Context, in inbound.FileClaimInput) (*inbound.ItemClaim, error) {
@@ -162,5 +225,16 @@ func (s *PassengerService) FileClaim(ctx context.Context, in inbound.FileClaimIn
 	if err != nil {
 		return nil, err
 	}
+	if err := s.repo.UpdateLostReportStatus(ctx, in.PassengerID, in.LostReportID, "matched"); err != nil {
+		return nil, err
+	}
 	return created, nil
+}
+
+func (s *PassengerService) ListNotifications(ctx context.Context, in inbound.ListNotificationsInput) ([]inbound.PassengerMatchNotification, error) {
+	return s.repo.ListNotifications(ctx, in.PassengerID, in.Limit, in.UnreadOnly, in.CreatedBefore)
+}
+
+func (s *PassengerService) MarkNotificationRead(ctx context.Context, in inbound.MarkNotificationReadInput) error {
+	return s.repo.MarkNotificationsRead(ctx, in.PassengerID, in.NotificationIDs)
 }
