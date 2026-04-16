@@ -19,6 +19,10 @@ service StaffService {
   rpc InitFoundItemImageUploads(InitFoundItemImageUploadsRequest) returns (InitFoundItemImageUploadsResponse);
   rpc DeleteFoundItemImageUpload(DeleteFoundItemImageUploadRequest) returns (google.protobuf.Empty);
 
+  // Internal-only: similarity search over found items using a query embedding.
+  // Auth: requires x-internal-token; does NOT require x-forwarded-token.
+  rpc SearchFoundItemMatchesByEmbedding(SearchFoundItemMatchesByEmbeddingRequest) returns (SearchFoundItemMatchesByEmbeddingResponse);
+
   rpc ListClaims(ListClaimsRequest) returns (ListClaimsResponse);
   rpc ReviewClaim(ReviewClaimRequest) returns (ItemClaim);
 
@@ -118,6 +122,21 @@ message UploadInit {
 
 message DeleteFoundItemImageUploadRequest {
   string s3_key = 1;
+}
+
+message SearchFoundItemMatchesByEmbeddingRequest {
+  repeated float query_embedding = 1;
+  int32 limit = 2;
+  double min_similarity = 3;
+}
+
+message SearchFoundItemMatchesByEmbeddingResponse {
+  repeated FoundItemMatch matches = 1;
+}
+
+message FoundItemMatch {
+  FoundItem item = 1;
+  double similarity_score = 2;
 }
 
 message UpdateFoundItemStatusRequest {

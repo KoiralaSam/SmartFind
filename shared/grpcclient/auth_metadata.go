@@ -51,4 +51,3 @@ func UnaryAuthInterceptor() grpc.UnaryClientInterceptor {
 		return invoker(ctx, method, req, reply, cc, opts...)
 	}
 }
-

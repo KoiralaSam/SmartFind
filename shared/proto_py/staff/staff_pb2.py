@@ -26,7 +26,7 @@ from google.protobuf import empty_pb2 as google_dot_protobuf_dot_empty__pb2
 from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0bstaff.proto\x12\x12smartfind.staff.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x95\x01\n\x05Staff\x12\n\n\x02id\x18\x01 \x01(\t\x12\x11\n\tfull_name\x18\x02 \x01(\t\x12\r\n\x05\x65mail\x18\x03 \x01(\t\x12.\n\ncreated_at\x18\x04 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12.\n\nupdated_at\x18\x05 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"/\n\x0cLoginRequest\x12\r\n\x05\x65mail\x18\x01 \x01(\t\x12\x10\n\x08password\x18\x02 \x01(\t\"P\n\rLoginResponse\x12(\n\x05staff\x18\x01 \x01(\x0b\x32\x19.smartfind.staff.v1.Staff\x12\x15\n\rsession_token\x18\x02 \x01(\t\"^\n\x12\x43reateStaffRequest\x12\x14\n\x0ctransit_code\x18\x01 \x01(\t\x12\x11\n\tfull_name\x18\x02 \x01(\t\x12\r\n\x05\x65mail\x18\x03 \x01(\t\x12\x10\n\x08password\x18\x04 \x01(\t\"\xc0\x03\n\tFoundItem\x12\n\n\x02id\x18\x01 \x01(\t\x12\x1a\n\x12posted_by_staff_id\x18\x02 \x01(\t\x12\x11\n\titem_name\x18\x03 \x01(\t\x12\x18\n\x10item_description\x18\x04 \x01(\t\x12\x11\n\titem_type\x18\x05 \x01(\t\x12\r\n\x05\x62rand\x18\x06 \x01(\t\x12\r\n\x05model\x18\x07 \x01(\t\x12\r\n\x05\x63olor\x18\x08 \x01(\t\x12\x10\n\x08material\x18\t \x01(\t\x12\x16\n\x0eitem_condition\x18\n \x01(\t\x12\x10\n\x08\x63\x61tegory\x18\x0b \x01(\t\x12\x16\n\x0elocation_found\x18\x0c \x01(\t\x12\x18\n\x10route_or_station\x18\r \x01(\t\x12\x10\n\x08route_id\x18\x0e \x01(\t\x12.\n\ndate_found\x18\x0f \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x0e\n\x06status\x18\x10 \x01(\t\x12.\n\ncreated_at\x18\x11 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12.\n\nupdated_at\x18\x12 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"\xc7\x02\n\x16\x43reateFoundItemRequest\x12\x10\n\x08staff_id\x18\x01 \x01(\t\x12\x11\n\titem_name\x18\x02 \x01(\t\x12\x18\n\x10item_description\x18\x03 \x01(\t\x12\x11\n\titem_type\x18\x04 \x01(\t\x12\r\n\x05\x62rand\x18\x05 \x01(\t\x12\r\n\x05model\x18\x06 \x01(\t\x12\r\n\x05\x63olor\x18\x07 \x01(\t\x12\x10\n\x08material\x18\x08 \x01(\t\x12\x16\n\x0eitem_condition\x18\t \x01(\t\x12\x10\n\x08\x63\x61tegory\x18\n \x01(\t\x12\x16\n\x0elocation_found\x18\x0b \x01(\t\x12\x18\n\x10route_or_station\x18\x0c \x01(\t\x12\x10\n\x08route_id\x18\r \x01(\t\x12.\n\ndate_found\x18\x0e \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"W\n\x1cUpdateFoundItemStatusRequest\x12\x10\n\x08staff_id\x18\x01 \x01(\t\x12\x15\n\rfound_item_id\x18\x02 \x01(\t\x12\x0e\n\x06status\x18\x03 \x01(\t\"t\n\x15ListFoundItemsRequest\x12\x0e\n\x06status\x18\x01 \x01(\t\x12\x10\n\x08route_id\x18\x02 \x01(\t\x12\x1a\n\x12posted_by_staff_id\x18\x03 \x01(\t\x12\r\n\x05limit\x18\x04 \x01(\x05\x12\x0e\n\x06offset\x18\x05 \x01(\x05\"F\n\x16ListFoundItemsResponse\x12,\n\x05items\x18\x01 \x03(\x0b\x32\x1d.smartfind.staff.v1.FoundItem\"\xe0\x01\n\tItemClaim\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0f\n\x07item_id\x18\x02 \x01(\t\x12\x1d\n\x15\x63laimant_passenger_id\x18\x03 \x01(\t\x12\x16\n\x0elost_report_id\x18\x04 \x01(\t\x12\x0f\n\x07message\x18\x05 \x01(\t\x12\x0e\n\x06status\x18\x06 \x01(\t\x12.\n\ncreated_at\x18\x07 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12.\n\nupdated_at\x18\x08 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"i\n\x11ListClaimsRequest\x12\x0e\n\x06status\x18\x01 \x01(\t\x12\x0f\n\x07item_id\x18\x02 \x01(\t\x12\x14\n\x0cpassenger_id\x18\x03 \x01(\t\x12\r\n\x05limit\x18\x04 \x01(\x05\x12\x0e\n\x06offset\x18\x05 \x01(\x05\"C\n\x12ListClaimsResponse\x12-\n\x06\x63laims\x18\x01 \x03(\x0b\x32\x1d.smartfind.staff.v1.ItemClaim\"J\n\x12ReviewClaimRequest\x12\x10\n\x08staff_id\x18\x01 \x01(\t\x12\x10\n\x08\x63laim_id\x18\x02 \x01(\t\x12\x10\n\x08\x64\x65\x63ision\x18\x03 \x01(\t\"\xa4\x01\n\x05Route\x12\n\n\x02id\x18\x01 \x01(\t\x12\x12\n\nroute_name\x18\x02 \x01(\t\x12\x1b\n\x13\x63reated_by_staff_id\x18\x03 \x01(\t\x12.\n\ncreated_at\x18\x04 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12.\n\nupdated_at\x18\x05 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\":\n\x12\x43reateRouteRequest\x12\x10\n\x08staff_id\x18\x01 \x01(\t\x12\x12\n\nroute_name\x18\x02 \x01(\t\"8\n\x12\x44\x65leteRouteRequest\x12\x10\n\x08staff_id\x18\x01 \x01(\t\x12\x10\n\x08route_id\x18\x02 \x01(\t\"O\n\x11ListRoutesRequest\x12\x1b\n\x13\x63reated_by_staff_id\x18\x01 \x01(\t\x12\r\n\x05limit\x18\x02 \x01(\x05\x12\x0e\n\x06offset\x18\x03 \x01(\x05\"?\n\x12ListRoutesResponse\x12)\n\x06routes\x18\x01 \x03(\x0b\x32\x19.smartfind.staff.v1.Route2\x90\x07\n\x0cStaffService\x12L\n\x05Login\x12 .smartfind.staff.v1.LoginRequest\x1a!.smartfind.staff.v1.LoginResponse\x12P\n\x0b\x43reateStaff\x12&.smartfind.staff.v1.CreateStaffRequest\x1a\x19.smartfind.staff.v1.Staff\x12\\\n\x0f\x43reateFoundItem\x12*.smartfind.staff.v1.CreateFoundItemRequest\x1a\x1d.smartfind.staff.v1.FoundItem\x12h\n\x15UpdateFoundItemStatus\x12\x30.smartfind.staff.v1.UpdateFoundItemStatusRequest\x1a\x1d.smartfind.staff.v1.FoundItem\x12g\n\x0eListFoundItems\x12).smartfind.staff.v1.ListFoundItemsRequest\x1a*.smartfind.staff.v1.ListFoundItemsResponse\x12[\n\nListClaims\x12%.smartfind.staff.v1.ListClaimsRequest\x1a&.smartfind.staff.v1.ListClaimsResponse\x12T\n\x0bReviewClaim\x12&.smartfind.staff.v1.ReviewClaimRequest\x1a\x1d.smartfind.staff.v1.ItemClaim\x12P\n\x0b\x43reateRoute\x12&.smartfind.staff.v1.CreateRouteRequest\x1a\x19.smartfind.staff.v1.Route\x12M\n\x0b\x44\x65leteRoute\x12&.smartfind.staff.v1.DeleteRouteRequest\x1a\x16.google.protobuf.Empty\x12[\n\nListRoutes\x12%.smartfind.staff.v1.ListRoutesRequest\x1a&.smartfind.staff.v1.ListRoutesResponseB\x1dZ\x1bsmartfind/proto;smartfindpbb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x0bstaff.proto\x12\x12smartfind.staff.v1\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\x95\x01\n\x05Staff\x12\n\n\x02id\x18\x01 \x01(\t\x12\x11\n\tfull_name\x18\x02 \x01(\t\x12\r\n\x05\x65mail\x18\x03 \x01(\t\x12.\n\ncreated_at\x18\x04 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12.\n\nupdated_at\x18\x05 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"/\n\x0cLoginRequest\x12\r\n\x05\x65mail\x18\x01 \x01(\t\x12\x10\n\x08password\x18\x02 \x01(\t\"P\n\rLoginResponse\x12(\n\x05staff\x18\x01 \x01(\x0b\x32\x19.smartfind.staff.v1.Staff\x12\x15\n\rsession_token\x18\x02 \x01(\t\"^\n\x12\x43reateStaffRequest\x12\x14\n\x0ctransit_code\x18\x01 \x01(\t\x12\x11\n\tfull_name\x18\x02 \x01(\t\x12\r\n\x05\x65mail\x18\x03 \x01(\t\x12\x10\n\x08password\x18\x04 \x01(\t\"\x9e\x04\n\tFoundItem\x12\n\n\x02id\x18\x01 \x01(\t\x12\x1a\n\x12posted_by_staff_id\x18\x02 \x01(\t\x12\x11\n\titem_name\x18\x03 \x01(\t\x12\x18\n\x10item_description\x18\x04 \x01(\t\x12\x11\n\titem_type\x18\x05 \x01(\t\x12\r\n\x05\x62rand\x18\x06 \x01(\t\x12\r\n\x05model\x18\x07 \x01(\t\x12\r\n\x05\x63olor\x18\x08 \x01(\t\x12\x10\n\x08material\x18\t \x01(\t\x12\x16\n\x0eitem_condition\x18\n \x01(\t\x12\x10\n\x08\x63\x61tegory\x18\x0b \x01(\t\x12\x16\n\x0elocation_found\x18\x0c \x01(\t\x12\x18\n\x10route_or_station\x18\r \x01(\t\x12\x10\n\x08route_id\x18\x0e \x01(\t\x12.\n\ndate_found\x18\x0f \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x0e\n\x06status\x18\x10 \x01(\t\x12.\n\ncreated_at\x18\x11 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12.\n\nupdated_at\x18\x12 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x12\n\nimage_keys\x18\x13 \x03(\t\x12\x19\n\x11primary_image_key\x18\x14 \x01(\t\x12\x12\n\nimage_urls\x18\x15 \x03(\t\x12\x19\n\x11primary_image_url\x18\x16 \x01(\t\"\xf6\x02\n\x16\x43reateFoundItemRequest\x12\x10\n\x08staff_id\x18\x01 \x01(\t\x12\x11\n\titem_name\x18\x02 \x01(\t\x12\x18\n\x10item_description\x18\x03 \x01(\t\x12\x11\n\titem_type\x18\x04 \x01(\t\x12\r\n\x05\x62rand\x18\x05 \x01(\t\x12\r\n\x05model\x18\x06 \x01(\t\x12\r\n\x05\x63olor\x18\x07 \x01(\t\x12\x10\n\x08material\x18\x08 \x01(\t\x12\x16\n\x0eitem_condition\x18\t \x01(\t\x12\x10\n\x08\x63\x61tegory\x18\n \x01(\t\x12\x16\n\x0elocation_found\x18\x0b \x01(\t\x12\x18\n\x10route_or_station\x18\x0c \x01(\t\x12\x10\n\x08route_id\x18\r \x01(\t\x12.\n\ndate_found\x18\x0e \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x12\n\nimage_keys\x18\x0f \x03(\t\x12\x19\n\x11primary_image_key\x18\x10 \x01(\t\"Q\n InitFoundItemImageUploadsRequest\x12-\n\x05\x66iles\x18\x01 \x03(\x0b\x32\x1e.smartfind.staff.v1.UploadFile\"6\n\nUploadFile\x12\x14\n\x0c\x63ontent_type\x18\x01 \x01(\t\x12\x12\n\nsize_bytes\x18\x02 \x01(\x03\"T\n!InitFoundItemImageUploadsResponse\x12/\n\x07uploads\x18\x01 \x03(\x0b\x32\x1e.smartfind.staff.v1.UploadInit\"\x9e\x01\n\nUploadInit\x12\x0e\n\x06s3_key\x18\x01 \x01(\t\x12\x12\n\nupload_url\x18\x02 \x01(\t\x12<\n\x07headers\x18\x03 \x03(\x0b\x32+.smartfind.staff.v1.UploadInit.HeadersEntry\x1a.\n\x0cHeadersEntry\x12\x0b\n\x03key\x18\x01 \x01(\t\x12\r\n\x05value\x18\x02 \x01(\t:\x02\x38\x01\"3\n!DeleteFoundItemImageUploadRequest\x12\x0e\n\x06s3_key\x18\x01 \x01(\t\"j\n(SearchFoundItemMatchesByEmbeddingRequest\x12\x17\n\x0fquery_embedding\x18\x01 \x03(\x02\x12\r\n\x05limit\x18\x02 \x01(\x05\x12\x16\n\x0emin_similarity\x18\x03 \x01(\x01\"`\n)SearchFoundItemMatchesByEmbeddingResponse\x12\x33\n\x07matches\x18\x01 \x03(\x0b\x32\".smartfind.staff.v1.FoundItemMatch\"W\n\x0e\x46oundItemMatch\x12+\n\x04item\x18\x01 \x01(\x0b\x32\x1d.smartfind.staff.v1.FoundItem\x12\x18\n\x10similarity_score\x18\x02 \x01(\x01\"W\n\x1cUpdateFoundItemStatusRequest\x12\x10\n\x08staff_id\x18\x01 \x01(\t\x12\x15\n\rfound_item_id\x18\x02 \x01(\t\x12\x0e\n\x06status\x18\x03 \x01(\t\"t\n\x15ListFoundItemsRequest\x12\x0e\n\x06status\x18\x01 \x01(\t\x12\x10\n\x08route_id\x18\x02 \x01(\t\x12\x1a\n\x12posted_by_staff_id\x18\x03 \x01(\t\x12\r\n\x05limit\x18\x04 \x01(\x05\x12\x0e\n\x06offset\x18\x05 \x01(\x05\"F\n\x16ListFoundItemsResponse\x12,\n\x05items\x18\x01 \x03(\x0b\x32\x1d.smartfind.staff.v1.FoundItem\"\xe0\x01\n\tItemClaim\x12\n\n\x02id\x18\x01 \x01(\t\x12\x0f\n\x07item_id\x18\x02 \x01(\t\x12\x1d\n\x15\x63laimant_passenger_id\x18\x03 \x01(\t\x12\x16\n\x0elost_report_id\x18\x04 \x01(\t\x12\x0f\n\x07message\x18\x05 \x01(\t\x12\x0e\n\x06status\x18\x06 \x01(\t\x12.\n\ncreated_at\x18\x07 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12.\n\nupdated_at\x18\x08 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\"i\n\x11ListClaimsRequest\x12\x0e\n\x06status\x18\x01 \x01(\t\x12\x0f\n\x07item_id\x18\x02 \x01(\t\x12\x14\n\x0cpassenger_id\x18\x03 \x01(\t\x12\r\n\x05limit\x18\x04 \x01(\x05\x12\x0e\n\x06offset\x18\x05 \x01(\x05\"C\n\x12ListClaimsResponse\x12-\n\x06\x63laims\x18\x01 \x03(\x0b\x32\x1d.smartfind.staff.v1.ItemClaim\"J\n\x12ReviewClaimRequest\x12\x10\n\x08staff_id\x18\x01 \x01(\t\x12\x10\n\x08\x63laim_id\x18\x02 \x01(\t\x12\x10\n\x08\x64\x65\x63ision\x18\x03 \x01(\t\"\xa4\x01\n\x05Route\x12\n\n\x02id\x18\x01 \x01(\t\x12\x12\n\nroute_name\x18\x02 \x01(\t\x12\x1b\n\x13\x63reated_by_staff_id\x18\x03 \x01(\t\x12.\n\ncreated_at\x18\x04 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12.\n\nupdated_at\x18\x05 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\":\n\x12\x43reateRouteRequest\x12\x10\n\x08staff_id\x18\x01 \x01(\t\x12\x12\n\nroute_name\x18\x02 \x01(\t\"8\n\x12\x44\x65leteRouteRequest\x12\x10\n\x08staff_id\x18\x01 \x01(\t\x12\x10\n\x08route_id\x18\x02 \x01(\t\"O\n\x11ListRoutesRequest\x12\x1b\n\x13\x63reated_by_staff_id\x18\x01 \x01(\t\x12\r\n\x05limit\x18\x02 \x01(\x05\x12\x0e\n\x06offset\x18\x03 \x01(\x05\"?\n\x12ListRoutesResponse\x12)\n\x06routes\x18\x01 \x03(\x0b\x32\x19.smartfind.staff.v1.Route2\xab\n\n\x0cStaffService\x12L\n\x05Login\x12 .smartfind.staff.v1.LoginRequest\x1a!.smartfind.staff.v1.LoginResponse\x12P\n\x0b\x43reateStaff\x12&.smartfind.staff.v1.CreateStaffRequest\x1a\x19.smartfind.staff.v1.Staff\x12\\\n\x0f\x43reateFoundItem\x12*.smartfind.staff.v1.CreateFoundItemRequest\x1a\x1d.smartfind.staff.v1.FoundItem\x12h\n\x15UpdateFoundItemStatus\x12\x30.smartfind.staff.v1.UpdateFoundItemStatusRequest\x1a\x1d.smartfind.staff.v1.FoundItem\x12g\n\x0eListFoundItems\x12).smartfind.staff.v1.ListFoundItemsRequest\x1a*.smartfind.staff.v1.ListFoundItemsResponse\x12\x88\x01\n\x19InitFoundItemImageUploads\x12\x34.smartfind.staff.v1.InitFoundItemImageUploadsRequest\x1a\x35.smartfind.staff.v1.InitFoundItemImageUploadsResponse\x12k\n\x1a\x44\x65leteFoundItemImageUpload\x12\x35.smartfind.staff.v1.DeleteFoundItemImageUploadRequest\x1a\x16.google.protobuf.Empty\x12\xa0\x01\n!SearchFoundItemMatchesByEmbedding\x12<.smartfind.staff.v1.SearchFoundItemMatchesByEmbeddingRequest\x1a=.smartfind.staff.v1.SearchFoundItemMatchesByEmbeddingResponse\x12[\n\nListClaims\x12%.smartfind.staff.v1.ListClaimsRequest\x1a&.smartfind.staff.v1.ListClaimsResponse\x12T\n\x0bReviewClaim\x12&.smartfind.staff.v1.ReviewClaimRequest\x1a\x1d.smartfind.staff.v1.ItemClaim\x12P\n\x0b\x43reateRoute\x12&.smartfind.staff.v1.CreateRouteRequest\x1a\x19.smartfind.staff.v1.Route\x12M\n\x0b\x44\x65leteRoute\x12&.smartfind.staff.v1.DeleteRouteRequest\x1a\x16.google.protobuf.Empty\x12[\n\nListRoutes\x12%.smartfind.staff.v1.ListRoutesRequest\x1a&.smartfind.staff.v1.ListRoutesResponseB\x1dZ\x1bsmartfind/proto;smartfindpbb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -34,6 +34,8 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'staff_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'Z\033smartfind/proto;smartfindpb'
+  _globals['_UPLOADINIT_HEADERSENTRY']._loaded_options = None
+  _globals['_UPLOADINIT_HEADERSENTRY']._serialized_options = b'8\001'
   _globals['_STAFF']._serialized_start=98
   _globals['_STAFF']._serialized_end=247
   _globals['_LOGINREQUEST']._serialized_start=249
@@ -43,33 +45,51 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_CREATESTAFFREQUEST']._serialized_start=380
   _globals['_CREATESTAFFREQUEST']._serialized_end=474
   _globals['_FOUNDITEM']._serialized_start=477
-  _globals['_FOUNDITEM']._serialized_end=925
-  _globals['_CREATEFOUNDITEMREQUEST']._serialized_start=928
-  _globals['_CREATEFOUNDITEMREQUEST']._serialized_end=1255
-  _globals['_UPDATEFOUNDITEMSTATUSREQUEST']._serialized_start=1257
-  _globals['_UPDATEFOUNDITEMSTATUSREQUEST']._serialized_end=1344
-  _globals['_LISTFOUNDITEMSREQUEST']._serialized_start=1346
-  _globals['_LISTFOUNDITEMSREQUEST']._serialized_end=1462
-  _globals['_LISTFOUNDITEMSRESPONSE']._serialized_start=1464
-  _globals['_LISTFOUNDITEMSRESPONSE']._serialized_end=1534
-  _globals['_ITEMCLAIM']._serialized_start=1537
-  _globals['_ITEMCLAIM']._serialized_end=1761
-  _globals['_LISTCLAIMSREQUEST']._serialized_start=1763
-  _globals['_LISTCLAIMSREQUEST']._serialized_end=1868
-  _globals['_LISTCLAIMSRESPONSE']._serialized_start=1870
-  _globals['_LISTCLAIMSRESPONSE']._serialized_end=1937
-  _globals['_REVIEWCLAIMREQUEST']._serialized_start=1939
-  _globals['_REVIEWCLAIMREQUEST']._serialized_end=2013
-  _globals['_ROUTE']._serialized_start=2016
-  _globals['_ROUTE']._serialized_end=2180
-  _globals['_CREATEROUTEREQUEST']._serialized_start=2182
-  _globals['_CREATEROUTEREQUEST']._serialized_end=2240
-  _globals['_DELETEROUTEREQUEST']._serialized_start=2242
-  _globals['_DELETEROUTEREQUEST']._serialized_end=2298
-  _globals['_LISTROUTESREQUEST']._serialized_start=2300
-  _globals['_LISTROUTESREQUEST']._serialized_end=2379
-  _globals['_LISTROUTESRESPONSE']._serialized_start=2381
-  _globals['_LISTROUTESRESPONSE']._serialized_end=2444
-  _globals['_STAFFSERVICE']._serialized_start=2447
-  _globals['_STAFFSERVICE']._serialized_end=3359
+  _globals['_FOUNDITEM']._serialized_end=1019
+  _globals['_CREATEFOUNDITEMREQUEST']._serialized_start=1022
+  _globals['_CREATEFOUNDITEMREQUEST']._serialized_end=1396
+  _globals['_INITFOUNDITEMIMAGEUPLOADSREQUEST']._serialized_start=1398
+  _globals['_INITFOUNDITEMIMAGEUPLOADSREQUEST']._serialized_end=1479
+  _globals['_UPLOADFILE']._serialized_start=1481
+  _globals['_UPLOADFILE']._serialized_end=1535
+  _globals['_INITFOUNDITEMIMAGEUPLOADSRESPONSE']._serialized_start=1537
+  _globals['_INITFOUNDITEMIMAGEUPLOADSRESPONSE']._serialized_end=1621
+  _globals['_UPLOADINIT']._serialized_start=1624
+  _globals['_UPLOADINIT']._serialized_end=1782
+  _globals['_UPLOADINIT_HEADERSENTRY']._serialized_start=1736
+  _globals['_UPLOADINIT_HEADERSENTRY']._serialized_end=1782
+  _globals['_DELETEFOUNDITEMIMAGEUPLOADREQUEST']._serialized_start=1784
+  _globals['_DELETEFOUNDITEMIMAGEUPLOADREQUEST']._serialized_end=1835
+  _globals['_SEARCHFOUNDITEMMATCHESBYEMBEDDINGREQUEST']._serialized_start=1837
+  _globals['_SEARCHFOUNDITEMMATCHESBYEMBEDDINGREQUEST']._serialized_end=1943
+  _globals['_SEARCHFOUNDITEMMATCHESBYEMBEDDINGRESPONSE']._serialized_start=1945
+  _globals['_SEARCHFOUNDITEMMATCHESBYEMBEDDINGRESPONSE']._serialized_end=2041
+  _globals['_FOUNDITEMMATCH']._serialized_start=2043
+  _globals['_FOUNDITEMMATCH']._serialized_end=2130
+  _globals['_UPDATEFOUNDITEMSTATUSREQUEST']._serialized_start=2132
+  _globals['_UPDATEFOUNDITEMSTATUSREQUEST']._serialized_end=2219
+  _globals['_LISTFOUNDITEMSREQUEST']._serialized_start=2221
+  _globals['_LISTFOUNDITEMSREQUEST']._serialized_end=2337
+  _globals['_LISTFOUNDITEMSRESPONSE']._serialized_start=2339
+  _globals['_LISTFOUNDITEMSRESPONSE']._serialized_end=2409
+  _globals['_ITEMCLAIM']._serialized_start=2412
+  _globals['_ITEMCLAIM']._serialized_end=2636
+  _globals['_LISTCLAIMSREQUEST']._serialized_start=2638
+  _globals['_LISTCLAIMSREQUEST']._serialized_end=2743
+  _globals['_LISTCLAIMSRESPONSE']._serialized_start=2745
+  _globals['_LISTCLAIMSRESPONSE']._serialized_end=2812
+  _globals['_REVIEWCLAIMREQUEST']._serialized_start=2814
+  _globals['_REVIEWCLAIMREQUEST']._serialized_end=2888
+  _globals['_ROUTE']._serialized_start=2891
+  _globals['_ROUTE']._serialized_end=3055
+  _globals['_CREATEROUTEREQUEST']._serialized_start=3057
+  _globals['_CREATEROUTEREQUEST']._serialized_end=3115
+  _globals['_DELETEROUTEREQUEST']._serialized_start=3117
+  _globals['_DELETEROUTEREQUEST']._serialized_end=3173
+  _globals['_LISTROUTESREQUEST']._serialized_start=3175
+  _globals['_LISTROUTESREQUEST']._serialized_end=3254
+  _globals['_LISTROUTESRESPONSE']._serialized_start=3256
+  _globals['_LISTROUTESRESPONSE']._serialized_end=3319
+  _globals['_STAFFSERVICE']._serialized_start=3322
+  _globals['_STAFFSERVICE']._serialized_end=4645
 # @@protoc_insertion_point(module_scope)

@@ -80,6 +80,8 @@ func FoundItemMatchToPB(m *inbound.FoundItemMatch) *pb.FoundItemMatch {
 		DateFound:       timeToTimestamp(m.DateFound),
 		Status:          m.Status,
 		SimilarityScore: m.SimilarityScore,
+		ImageUrls:       m.ImageURLs,
+		PrimaryImageUrl: m.PrimaryImageURL,
 	}
 }
 
@@ -107,10 +109,39 @@ func ItemClaimToPB(c *inbound.ItemClaim) *pb.ItemClaim {
 	}
 }
 
+func PassengerMatchNotificationToPB(n *inbound.PassengerMatchNotification) *pb.PassengerMatchNotification {
+	if n == nil {
+		return nil
+	}
+	var readAt *timestamppb.Timestamp
+	if !n.ReadAt.IsZero() {
+		readAt = timeToTimestamp(n.ReadAt)
+	}
+	return &pb.PassengerMatchNotification{
+		Id:              n.ID,
+		PassengerId:     n.PassengerID,
+		LostReportId:    n.LostReportID,
+		FoundItemId:     n.FoundItemID,
+		SimilarityScore: n.SimilarityScore,
+		ItemName:        n.ItemName,
+		ImageUrls:       n.ImageURLs,
+		PrimaryImageUrl: n.PrimaryImageURL,
+		CreatedAt:       timeToTimestamp(n.CreatedAt),
+		ReadAt:          readAt,
+	}
+}
+
+func PassengerMatchNotificationsToPB(n []inbound.PassengerMatchNotification) []*pb.PassengerMatchNotification {
+	out := make([]*pb.PassengerMatchNotification, len(n))
+	for i := range n {
+		out[i] = PassengerMatchNotificationToPB(&n[i])
+	}
+	return out
+}
+
 func timeToTimestamp(t time.Time) *timestamppb.Timestamp {
 	if t.IsZero() {
 		return nil
 	}
 	return timestamppb.New(t)
 }
-

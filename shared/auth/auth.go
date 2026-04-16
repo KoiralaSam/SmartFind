@@ -11,11 +11,13 @@ import (
 type ActorType string
 
 const (
-	ActorStaff ActorType = "staff"
+	ActorPassenger ActorType = "passenger"
+	ActorStaff     ActorType = "staff"
 )
 
 type Claims struct {
 	ActorType      ActorType
+	PassengerID    string
 	StaffID        string
 	Email          string
 	ForwardedToken string
@@ -40,7 +42,7 @@ func ClaimsFromContext(ctx context.Context) (Claims, error) {
 	if !ok {
 		return Claims{}, ErrNoClaims
 	}
-	if strings.TrimSpace(c.StaffID) == "" {
+	if strings.TrimSpace(string(c.ActorType)) == "" {
 		return Claims{}, ErrNoClaims
 	}
 	return c, nil
@@ -55,6 +57,9 @@ func VerifyStaffSessionTokenFromEnv(token string) (Claims, error) {
 	if err != nil {
 		return Claims{}, err
 	}
+	if strings.TrimSpace(c.ActorType) != string(ActorStaff) {
+		return Claims{}, errors.New("invalid actorType")
+	}
 	return Claims{
 		ActorType:      ActorStaff,
 		StaffID:        c.Sub,
@@ -63,3 +68,22 @@ func VerifyStaffSessionTokenFromEnv(token string) (Claims, error) {
 	}, nil
 }
 
+func VerifyPassengerSessionTokenFromEnv(token string) (Claims, error) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return Claims{}, errors.New("missing token")
+	}
+	c, err := jwt.VerifyTokenFromEnv(token)
+	if err != nil {
+		return Claims{}, err
+	}
+	if strings.TrimSpace(c.ActorType) != string(ActorPassenger) {
+		return Claims{}, errors.New("invalid actorType")
+	}
+	return Claims{
+		ActorType:      ActorPassenger,
+		PassengerID:    c.Sub,
+		Email:          c.Email,
+		ForwardedToken: token,
+	}, nil
+}

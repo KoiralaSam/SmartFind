@@ -10,6 +10,7 @@ import (
 	"time"
 
 	passengergrpc "smartfind/services/passenger-service/internal/adapters/primary/grpc"
+	grpcadapter "smartfind/services/passenger-service/internal/adapters/secondary/grpc"
 	"smartfind/services/passenger-service/internal/adapters/secondary/postgres"
 	"smartfind/services/passenger-service/internal/service"
 	"smartfind/shared/db"
@@ -36,7 +37,13 @@ func main() {
 	}()
 
 	repo := postgres.NewPassengerRepository(db.GetDB())
-	usecase := service.NewPassengerService(repo)
+	staffClient, err := grpcadapter.NewStaffClient()
+	if err != nil {
+		log.Fatalf("failed to init staff grpc client: %v", err)
+	}
+	defer staffClient.Close()
+
+	usecase := service.NewPassengerService(repo, staffClient.Client)
 
 	grpcServer := passengergrpc.NewServer(usecase)
 
@@ -68,4 +75,3 @@ func main() {
 		grpcServer.Stop()
 	}
 }
-
