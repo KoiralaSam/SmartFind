@@ -29,6 +29,9 @@ func main() {
 	mux.HandleFunc("OPTIONS /staff/claims", optCORS)
 	mux.HandleFunc("OPTIONS /staff/claims/review", optCORS)
 	mux.HandleFunc("OPTIONS /staff/routes", optCORS)
+	mux.HandleFunc("OPTIONS /extract", optCORS)
+	mux.HandleFunc("OPTIONS /media/uploads/init", optCORS)
+	mux.HandleFunc("OPTIONS /media/uploads/delete", optCORS)
 
 	// API routes with CORS (Go 1.22+ requires space between method and path)
 	mux.HandleFunc("POST /passenger/login", corsMiddleware(passengerLoginHandler))
@@ -44,6 +47,9 @@ func main() {
 	mux.HandleFunc("POST /staff/routes", corsMiddleware(staffCreateRouteHandler))
 	mux.HandleFunc("DELETE /staff/routes", corsMiddleware(staffDeleteRouteHandler))
 	mux.HandleFunc("GET /staff/routes", corsMiddleware(staffListRoutesHandler))
+	mux.HandleFunc("POST /extract", corsMiddleware(extractDetailsHandler))
+	mux.HandleFunc("POST /media/uploads/init", corsMiddleware(mediaInitUploadsHandler))
+	mux.HandleFunc("POST /media/uploads/delete", corsMiddleware(mediaDeleteUploadHandler))
 
 	server := &http.Server{
 		Addr:    httpAddr,

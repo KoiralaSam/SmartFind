@@ -19,6 +19,8 @@ import {
   staffCreateFoundItem,
   staffListFoundItems,
   staffUpdateFoundItemStatus,
+  mediaInitUploads,
+  mediaDeleteUpload,
 } from "../api/gateway";
 import AnalyticsPanel from "./AnalyticsPanel";
 
@@ -39,9 +41,43 @@ const MAX_PHOTOS = 5;
 const field =
   "flex h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
+function isKnownValue(v) {
+  const s = String(v ?? "").trim();
+  return s !== "" && s !== "unknown";
+}
+
+function mergeDescription(prev, next) {
+  const a = String(prev ?? "").trim();
+  const b = String(next ?? "").trim();
+  if (!a) return b;
+  if (!b) return a;
+  if (a.includes(b)) return a;
+  return `${a}\n\nAdditional photo findings: ${b}`;
+}
+
+function mergeExtractedDetails(prev, next) {
+  if (!next) return prev;
+  if (!prev) return next;
+  return {
+    item_name: isKnownValue(prev.item_name) ? prev.item_name : next.item_name,
+    item_type: isKnownValue(prev.item_type) ? prev.item_type : next.item_type,
+    category: isKnownValue(prev.category) ? prev.category : next.category,
+    brand: isKnownValue(prev.brand) ? prev.brand : next.brand,
+    model: isKnownValue(prev.model) ? prev.model : next.model,
+    color: isKnownValue(prev.color) ? prev.color : next.color,
+    material: isKnownValue(prev.material) ? prev.material : next.material,
+    item_condition: isKnownValue(prev.item_condition)
+      ? prev.item_condition
+      : next.item_condition,
+    item_description: mergeDescription(prev.item_description, next.item_description),
+  };
+}
+
 function mapFoundItemDTO(dto) {
   if (!dto) return null;
   const dateStr = dto.date_found ? String(dto.date_found).slice(0, 10) : "";
+  const images = Array.isArray(dto.images) ? dto.images.filter(Boolean) : [];
+  const primary = dto.image || images[0] || null;
   return {
     id: dto.id,
     itemName: dto.item_name,
@@ -61,8 +97,8 @@ function mapFoundItemDTO(dto) {
     createdAt: dto.created_at || null,
     updatedAt: dto.updated_at || null,
     claimedAt: dto.status === "claimed" ? dto.updated_at || null : null,
-    image: null,
-    images: [],
+    image: primary,
+    images,
   };
 }
 
@@ -120,11 +156,26 @@ function ItemCard({ item, onClaim }) {
     <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-start gap-4">
         {item.image && (
-          <img
-            src={item.image}
-            alt={item.itemName}
-            className="h-16 w-16 shrink-0 rounded-xl border border-border object-cover"
-          />
+          <div className="shrink-0">
+            <img
+              src={item.image}
+              alt={item.itemName}
+              className="h-16 w-16 rounded-xl border border-border object-cover"
+            />
+            {Array.isArray(item.images) && item.images.length > 1 && (
+              <div className="mt-2 flex items-center gap-1">
+                {item.images.slice(1).map((src) => (
+                  <img
+                    key={src}
+                    src={src}
+                    alt=""
+                    className="h-6 w-6 rounded-md border border-border object-cover"
+                    loading="lazy"
+                  />
+                ))}
+              </div>
+            )}
+          </div>
         )}
         <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
         <div className="min-w-0 flex-1 space-y-1">
@@ -190,17 +241,75 @@ export default function StaffDashboard() {
 
   // AI-extracted detail fields
   const [extractedDetails, setExtractedDetails] = useState(null);
-  const [extracting, setExtracting] = useState(false);
+  const [extractingCount, setExtractingCount] = useState(0);
+  const extracting = extractingCount > 0;
   const [extractError, setExtractError] = useState(null);
+  const [extractionFindings, setExtractionFindings] = useState([]);
   // Editable fields pre-filled by AI
   const [editableDescription, setEditableDescription] = useState("");
   const [editableCategory, setEditableCategory] = useState("");
   const [uploadError, setUploadError] = useState("");
+  const lastAutoDescriptionRef = useRef("");
+  const lastAutoCategoryRef = useRef("");
 
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState(null);
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+
+  const uploadPhotoToS3 = useCallback(async (entry) => {
+    if (!entry?.id) return;
+    if (entry.s3Key) return;
+
+    setPhotos((prev) =>
+      prev.map((p) =>
+        p.id === entry.id ? { ...p, uploading: true, uploadError: null } : p,
+      ),
+    );
+
+    try {
+      const blob =
+        entry.file ||
+        entry.blob ||
+        (await (await fetch(entry.data || entry.url)).blob());
+      const contentType = blob.type || "image/jpeg";
+
+      const init = await mediaInitUploads([
+        { content_type: contentType, size_bytes: blob.size },
+      ]);
+      const upload = init?.uploads?.[0];
+      if (!upload?.upload_url || !upload?.s3_key) {
+        throw new Error("failed to init upload");
+      }
+
+      const res = await fetch(upload.upload_url, {
+        method: "PUT",
+        headers: upload.headers || { "Content-Type": contentType },
+        body: blob,
+      });
+      if (!res.ok) throw new Error(`upload failed (HTTP ${res.status})`);
+
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === entry.id
+            ? { ...p, uploading: false, s3Key: upload.s3_key }
+            : p,
+        ),
+      );
+    } catch (err) {
+      setPhotos((prev) =>
+        prev.map((p) =>
+          p.id === entry.id
+            ? {
+              ...p,
+              uploading: false,
+              uploadError: err?.message || "upload failed",
+            }
+            : p,
+        ),
+      );
+    }
+  }, [mediaInitUploads]);
 
   const refreshItems = useCallback(async () => {
     if (!user?.id) return;
@@ -230,58 +339,99 @@ export default function StaffDashboard() {
   const unclaimed = items.filter((i) => i.status === "unclaimed");
   const claimed = items.filter((i) => i.status === "claimed");
 
-  const runExtractionOnPrimary = useCallback(
-    async (primary) => {
-      setExtracting(true);
+  const runExtractionOnPhoto = useCallback(
+    async (photo) => {
+      setExtractingCount((n) => n + 1);
       setExtractError(null);
-      setExtractedDetails(null);
-      setEditableDescription("");
-      setEditableCategory("");
       try {
         const res = await fetch("/api/extract", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ image_base64: primary.data }),
+          credentials: "include",
+          body: JSON.stringify({ image_base64: photo.data }),
         });
-        if (!res.ok) throw new Error("Failed to analyze image");
+        if (!res.ok) {
+          const payload = await res.json().catch(() => null);
+          const msg =
+            payload?.error ||
+            payload?.detail ||
+            `Failed to analyze image (HTTP ${res.status})`;
+          throw new Error(msg);
+        }
         const data = await res.json();
-        setExtractedDetails(data);
-        if (!itemName && data.item_name && data.item_name !== "unknown") {
+        setExtractionFindings((prev) => [
+          ...prev,
+          { photoId: photo.id, details: data },
+        ]);
+        setExtractError(null);
+        if (!itemName && isKnownValue(data.item_name)) {
           setItemName(data.item_name);
         }
-        setEditableDescription(data.item_description || "");
-        setEditableCategory(
-          data.category && data.category !== "unknown" ? data.category : "",
-        );
-      } catch {
+      } catch (err) {
         setExtractError(
-          "Could not extract details from image. You can still fill in the details manually.",
+          err?.message ||
+            "Could not extract details from image. You can still fill in the details manually.",
         );
       } finally {
-        setExtracting(false);
+        setExtractingCount((n) => Math.max(0, n - 1));
       }
     },
     [itemName],
   );
 
+  useEffect(() => {
+    if (!extractionFindings.length) {
+      setExtractedDetails(null);
+      if (!editableDescription) lastAutoDescriptionRef.current = "";
+      if (!editableCategory) lastAutoCategoryRef.current = "";
+      return;
+    }
+
+    const combined = extractionFindings.reduce(
+      (acc, cur) => mergeExtractedDetails(acc, cur.details),
+      null,
+    );
+    setExtractedDetails(combined);
+
+    const nextAutoDescription = combined?.item_description || "";
+    if (
+      nextAutoDescription !== editableDescription &&
+      (!editableDescription || editableDescription === lastAutoDescriptionRef.current)
+    ) {
+      setEditableDescription(nextAutoDescription);
+      lastAutoDescriptionRef.current = nextAutoDescription;
+    }
+
+    const nextAutoCategory = isKnownValue(combined?.category)
+      ? combined.category
+      : "";
+    if (
+      nextAutoCategory !== editableCategory &&
+      (!editableCategory || editableCategory === lastAutoCategoryRef.current)
+    ) {
+      setEditableCategory(nextAutoCategory);
+      lastAutoCategoryRef.current = nextAutoCategory;
+    }
+  }, [extractionFindings, editableCategory, editableDescription]);
+
   const appendPhotos = useCallback(
     async (newPhotoEntries) => {
       if (!newPhotoEntries.length) return;
       let toAdd = [];
-      let wasEmpty = false;
       setPhotos((prev) => {
         const slots = MAX_PHOTOS - prev.length;
         toAdd = newPhotoEntries.slice(0, slots);
-        wasEmpty = prev.length === 0;
         if (!toAdd.length) return prev;
         return [...prev, ...toAdd];
       });
       if (!toAdd.length) return;
-      if (wasEmpty && toAdd.length > 0) {
-        await runExtractionOnPrimary(toAdd[0]);
+      for (const entry of toAdd) {
+        // Run extraction + S3 upload immediately for every added photo.
+        // eslint-disable-next-line no-await-in-loop
+        await Promise.all([runExtractionOnPhoto(entry), uploadPhotoToS3(entry)]);
       }
     },
-    [runExtractionOnPrimary],
+    [runExtractionOnPhoto, uploadPhotoToS3],
   );
 
   async function handleImageChange(e) {
@@ -301,6 +451,10 @@ export default function StaffDashboard() {
                 id: crypto.randomUUID(),
                 url: ev.target.result,
                 data: ev.target.result,
+                file,
+                s3Key: "",
+                uploading: false,
+                uploadError: null,
               });
             reader.readAsDataURL(file);
           }),
@@ -319,11 +473,37 @@ export default function StaffDashboard() {
 
     (async () => {
       setCameraError(null);
+      const isLocalhost =
+        window.location.hostname === "localhost" ||
+        window.location.hostname === "127.0.0.1" ||
+        window.location.hostname === "[::1]";
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraError("Camera is not supported in this browser.");
+        return;
+      }
+      if (!window.isSecureContext && !isLocalhost) {
+        setCameraError(
+          `Camera requires HTTPS (or localhost). Current origin: ${window.location.origin}.`,
+        );
+        return;
+      }
       try {
-        stream = await navigator.mediaDevices.getUserMedia({
+        const preferred = {
           video: { facingMode: { ideal: "environment" } },
           audio: false,
-        });
+        };
+        try {
+          stream = await navigator.mediaDevices.getUserMedia(preferred);
+        } catch (err) {
+          if (err?.name === "OverconstrainedError") {
+            stream = await navigator.mediaDevices.getUserMedia({
+              video: true,
+              audio: false,
+            });
+          } else {
+            throw err;
+          }
+        }
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
           return;
@@ -332,13 +512,34 @@ export default function StaffDashboard() {
         const video = videoRef.current;
         if (video) {
           video.srcObject = stream;
-          await video.play();
+          try {
+            await video.play();
+          } catch (err) {
+            // Keep the stream alive even if playback is blocked by autoplay policy.
+            // eslint-disable-next-line no-console
+            console.warn("video.play() failed", err);
+          }
         }
-      } catch {
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error("getUserMedia failed", err);
         if (!cancelled) {
-          setCameraError(
-            "Could not access the camera. Allow permission or use file upload.",
-          );
+          const name = err?.name || "";
+          if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+            setCameraError(
+              "Camera permission denied. Allow camera access in your browser site settings, then try again.",
+            );
+          } else if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+            setCameraError("No camera was found on this device. Use file upload.");
+          } else if (name === "NotReadableError") {
+            setCameraError(
+              "Camera is already in use by another app/tab. Close it and try again.",
+            );
+          } else {
+            setCameraError(
+              "Could not access the camera. Allow permission or use file upload.",
+            );
+          }
         }
       }
     })();
@@ -371,27 +572,30 @@ export default function StaffDashboard() {
     if (!ctx) return;
     ctx.drawImage(video, 0, 0);
     const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+    const blob = await (await fetch(dataUrl)).blob();
     const entry = {
       id: crypto.randomUUID(),
       url: dataUrl,
       data: dataUrl,
+      blob,
+      s3Key: "",
+      uploading: false,
+      uploadError: null,
     };
     await appendPhotos([entry]);
     closeCamera();
   }
 
   function removePhoto(id) {
-    setPhotos((prev) => {
-      const next = prev.filter((p) => p.id !== id);
-      // If the primary photo was removed, clear AI results
-      if (prev[0]?.id === id) {
-        setExtractedDetails(null);
-        setExtractError(null);
-        setEditableDescription("");
-        setEditableCategory("");
-      }
-      return next;
-    });
+    const removed = photos.find((p) => p.id === id);
+    setPhotos((prev) => prev.filter((p) => p.id !== id));
+    setExtractionFindings((prev) => prev.filter((f) => f.photoId !== id));
+
+    const key = removed?.s3Key;
+    if (key && !removed?.uploading) {
+      // Best-effort cleanup in S3 so abandoned uploads don't linger.
+      mediaDeleteUpload(key).catch(() => null);
+    }
   }
 
   const handleUpload = useCallback(
@@ -400,6 +604,17 @@ export default function StaffDashboard() {
       if (photos.length === 0) return;
       if (!user?.id) return;
       setUploadError("");
+
+      const pending = photos.some((p) => p.uploading);
+      if (pending) {
+        setUploadError("Please wait for photo uploads to finish.");
+        return;
+      }
+      const keys = photos.map((p) => p.s3Key).filter(Boolean);
+      if (keys.length === 0) {
+        setUploadError("No uploaded image keys found. Please re-upload photos.");
+        return;
+      }
 
       const dateISO = dateFound
         ? new Date(`${dateFound}T00:00:00Z`).toISOString()
@@ -424,6 +639,8 @@ export default function StaffDashboard() {
           route_or_station: routeOrStation.trim(),
           route_id: "",
           date_found: dateISO,
+          image_keys: keys,
+          primary_image_key: keys[0] || "",
         });
 
         const mapped = mapFoundItemDTO(created) || {
@@ -457,8 +674,11 @@ export default function StaffDashboard() {
       setPhotos([]);
       setExtractedDetails(null);
       setExtractError(null);
+      setExtractionFindings([]);
       setEditableDescription("");
       setEditableCategory("");
+      lastAutoDescriptionRef.current = "";
+      lastAutoCategoryRef.current = "";
       setUploadSuccess(true);
       setTimeout(() => setUploadSuccess(false), 3000);
     },
@@ -747,7 +967,7 @@ export default function StaffDashboard() {
                     Photos <span className="text-destructive">*</span>
                   </label>
                   <span className="text-xs text-muted-foreground">
-                    {photos.length}/{MAX_PHOTOS} · first photo used for AI
+                    {photos.length}/{MAX_PHOTOS} · each photo analyzed & uploaded
                   </span>
                 </div>
 
@@ -760,6 +980,16 @@ export default function StaffDashboard() {
                           alt={`Photo ${idx + 1}`}
                           className="h-20 w-20 rounded-xl border border-border object-cover"
                         />
+                        {photo.uploading && (
+                          <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/50">
+                            <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                          </div>
+                        )}
+                        {!photo.uploading && photo.uploadError && (
+                          <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/60 p-1 text-center text-[10px] font-medium text-white">
+                            Upload failed
+                          </div>
+                        )}
                         {idx === 0 && (
                           <span className="absolute bottom-1 left-1 rounded-md bg-foreground/80 px-1.5 py-0.5 text-[9px] font-semibold text-background">
                             Primary
@@ -842,6 +1072,7 @@ export default function StaffDashboard() {
                         <video
                           ref={videoRef}
                           playsInline
+                          autoPlay
                           muted
                           className="h-full w-full object-cover"
                         />
@@ -879,7 +1110,7 @@ export default function StaffDashboard() {
                 <div className="flex items-center gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
                   <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
                   <p className="text-sm text-blue-700">
-                    AI is analysing the primary photo…
+                    AI is analysing {extractingCount} photo{extractingCount === 1 ? "" : "s"}…
                   </p>
                 </div>
               )}
@@ -895,7 +1126,7 @@ export default function StaffDashboard() {
                 <div className="space-y-4 rounded-xl border border-border bg-muted/30 p-4">
                   <div className="flex items-center justify-between">
                     <p className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
-                      AI Extracted Details
+                      AI Extracted Details ({extractionFindings.length} photo{extractionFindings.length === 1 ? "" : "s"})
                     </p>
                     <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">
                       Review &amp; edit if needed
@@ -951,6 +1182,24 @@ export default function StaffDashboard() {
                         </span>
                       ))}
                   </div>
+
+                  {extractionFindings.length > 1 && (
+                    <div className="space-y-2 rounded-xl border border-border bg-background/60 p-3">
+                      <p className="text-[11px] font-medium text-muted-foreground">
+                        Findings per photo
+                      </p>
+                      <div className="space-y-2">
+                        {extractionFindings.map((f, idx) => (
+                          <div key={f.photoId} className="text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">
+                              Photo {idx + 1}:
+                            </span>{" "}
+                            {f?.details?.item_description || "—"}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -962,7 +1211,11 @@ export default function StaffDashboard() {
 
               <button
                 type="submit"
-                disabled={photos.length === 0 || extracting}
+                disabled={
+                  photos.length === 0 ||
+                  extracting ||
+                  photos.some((p) => p.uploading || !p.s3Key || p.uploadError)
+                }
                 className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Upload className="h-4 w-4" />

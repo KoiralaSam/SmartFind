@@ -2,6 +2,7 @@ package grpcclients
 
 import (
 	"smartfind/shared/env"
+	"smartfind/shared/grpcclient"
 	pb "smartfind/shared/proto/staff"
 
 	"google.golang.org/grpc"
@@ -15,7 +16,11 @@ type StaffGRPCClient struct {
 
 func NewStaffGRPCClient() (*StaffGRPCClient, error) {
 	addr := env.GetString("STAFF_SERVICE_ADDRESS", "localhost:50052")
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(
+		addr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(grpcclient.UnaryAuthInterceptor()),
+	)
 	if err != nil {
 		return nil, err
 	}

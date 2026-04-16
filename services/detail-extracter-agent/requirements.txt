@@ -1,5 +1,7 @@
 fastapi
 uvicorn[standard]
+grpcio
+protobuf>=6.31.1,<7.0.0
 requests
 google-auth
 python-dotenv

@@ -23,6 +23,22 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+type DetailExtractRequest struct {
+	ImageBase64 string `json:"image_base64"`
+}
+
+type DetailExtractResponse struct {
+	ItemName        string `json:"item_name"`
+	ItemType        string `json:"item_type"`
+	Category        string `json:"category"`
+	Brand           string `json:"brand"`
+	Model           string `json:"model"`
+	Color           string `json:"color"`
+	Material        string `json:"material"`
+	ItemCondition   string `json:"item_condition"`
+	ItemDescription string `json:"item_description"`
+}
+
 type StaffDTO struct {
 	ID        string    `json:"id"`
 	FullName  string    `json:"full_name"`
@@ -49,20 +65,22 @@ type StaffCreateStaffRequest struct {
 }
 
 type StaffCreateFoundItemRequest struct {
-	StaffID         string `json:"staff_id"`
-	ItemName        string `json:"item_name"`
-	ItemDescription string `json:"item_description"`
-	ItemType        string `json:"item_type"`
-	Brand           string `json:"brand"`
-	Model           string `json:"model"`
-	Color           string `json:"color"`
-	Material        string `json:"material"`
-	ItemCondition   string `json:"item_condition"`
-	Category        string `json:"category"`
-	LocationFound   string `json:"location_found"`
-	RouteOrStation  string `json:"route_or_station"`
-	RouteID         string `json:"route_id"`
-	DateFound       string `json:"date_found"` // RFC3339
+	StaffID         string   `json:"staff_id"`
+	ItemName        string   `json:"item_name"`
+	ItemDescription string   `json:"item_description"`
+	ItemType        string   `json:"item_type"`
+	Brand           string   `json:"brand"`
+	Model           string   `json:"model"`
+	Color           string   `json:"color"`
+	Material        string   `json:"material"`
+	ItemCondition   string   `json:"item_condition"`
+	Category        string   `json:"category"`
+	LocationFound   string   `json:"location_found"`
+	RouteOrStation  string   `json:"route_or_station"`
+	RouteID         string   `json:"route_id"`
+	DateFound       string   `json:"date_found"` // RFC3339
+	ImageKeys       []string `json:"image_keys"`
+	PrimaryImageKey string   `json:"primary_image_key"`
 }
 
 type StaffUpdateFoundItemStatusRequest struct {
@@ -90,6 +108,8 @@ type FoundItemDTO struct {
 	Status          string    `json:"status"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
+	Image           string    `json:"image"`
+	Images          []string  `json:"images"`
 }
 
 type StaffListFoundItemsResponse struct {
