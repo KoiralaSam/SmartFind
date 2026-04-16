@@ -13,6 +13,10 @@ func NewServer(usecase inbound.PassengerUsecase) *grpc.Server {
 	srv := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			interceptor.Recovery(),
+			interceptor.InternalAuth(),
+			interceptor.Claims(map[string]bool{
+				"/smartfind.passenger.v1.PassengerService/Login": true,
+			}),
 			interceptor.Logging(),
 		),
 	)
@@ -20,4 +24,3 @@ func NewServer(usecase inbound.PassengerUsecase) *grpc.Server {
 	pb.RegisterPassengerServiceServer(srv, handler.New(usecase))
 	return srv
 }
-

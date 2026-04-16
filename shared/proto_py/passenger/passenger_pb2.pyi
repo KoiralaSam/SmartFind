@@ -137,7 +137,7 @@ class DeleteLostReportRequest(_message.Message):
     def __init__(self, passenger_id: _Optional[str] = ..., lost_report_id: _Optional[str] = ...) -> None: ...
 
 class FoundItemMatch(_message.Message):
-    __slots__ = ("found_item_id", "item_name", "item_description", "item_type", "brand", "model", "color", "material", "item_condition", "category", "location_found", "route_or_station", "route_id", "date_found", "status", "similarity_score")
+    __slots__ = ("found_item_id", "item_name", "item_description", "item_type", "brand", "model", "color", "material", "item_condition", "category", "location_found", "route_or_station", "route_id", "date_found", "status", "similarity_score", "image_urls", "primary_image_url")
     FOUND_ITEM_ID_FIELD_NUMBER: _ClassVar[int]
     ITEM_NAME_FIELD_NUMBER: _ClassVar[int]
     ITEM_DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
@@ -154,6 +154,8 @@ class FoundItemMatch(_message.Message):
     DATE_FOUND_FIELD_NUMBER: _ClassVar[int]
     STATUS_FIELD_NUMBER: _ClassVar[int]
     SIMILARITY_SCORE_FIELD_NUMBER: _ClassVar[int]
+    IMAGE_URLS_FIELD_NUMBER: _ClassVar[int]
+    PRIMARY_IMAGE_URL_FIELD_NUMBER: _ClassVar[int]
     found_item_id: str
     item_name: str
     item_description: str
@@ -170,7 +172,9 @@ class FoundItemMatch(_message.Message):
     date_found: _timestamp_pb2.Timestamp
     status: str
     similarity_score: float
-    def __init__(self, found_item_id: _Optional[str] = ..., item_name: _Optional[str] = ..., item_description: _Optional[str] = ..., item_type: _Optional[str] = ..., brand: _Optional[str] = ..., model: _Optional[str] = ..., color: _Optional[str] = ..., material: _Optional[str] = ..., item_condition: _Optional[str] = ..., category: _Optional[str] = ..., location_found: _Optional[str] = ..., route_or_station: _Optional[str] = ..., route_id: _Optional[str] = ..., date_found: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., status: _Optional[str] = ..., similarity_score: _Optional[float] = ...) -> None: ...
+    image_urls: _containers.RepeatedScalarFieldContainer[str]
+    primary_image_url: str
+    def __init__(self, found_item_id: _Optional[str] = ..., item_name: _Optional[str] = ..., item_description: _Optional[str] = ..., item_type: _Optional[str] = ..., brand: _Optional[str] = ..., model: _Optional[str] = ..., color: _Optional[str] = ..., material: _Optional[str] = ..., item_condition: _Optional[str] = ..., category: _Optional[str] = ..., location_found: _Optional[str] = ..., route_or_station: _Optional[str] = ..., route_id: _Optional[str] = ..., date_found: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., status: _Optional[str] = ..., similarity_score: _Optional[float] = ..., image_urls: _Optional[_Iterable[str]] = ..., primary_image_url: _Optional[str] = ...) -> None: ...
 
 class SearchFoundItemMatchesRequest(_message.Message):
     __slots__ = ("passenger_id", "lost_report_id", "limit")
@@ -219,3 +223,49 @@ class ItemClaim(_message.Message):
     created_at: _timestamp_pb2.Timestamp
     updated_at: _timestamp_pb2.Timestamp
     def __init__(self, id: _Optional[str] = ..., item_id: _Optional[str] = ..., claimant_passenger_id: _Optional[str] = ..., lost_report_id: _Optional[str] = ..., message: _Optional[str] = ..., status: _Optional[str] = ..., created_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., updated_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+
+class PassengerMatchNotification(_message.Message):
+    __slots__ = ("id", "passenger_id", "lost_report_id", "found_item_id", "similarity_score", "item_name", "image_urls", "primary_image_url", "created_at", "read_at")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    PASSENGER_ID_FIELD_NUMBER: _ClassVar[int]
+    LOST_REPORT_ID_FIELD_NUMBER: _ClassVar[int]
+    FOUND_ITEM_ID_FIELD_NUMBER: _ClassVar[int]
+    SIMILARITY_SCORE_FIELD_NUMBER: _ClassVar[int]
+    ITEM_NAME_FIELD_NUMBER: _ClassVar[int]
+    IMAGE_URLS_FIELD_NUMBER: _ClassVar[int]
+    PRIMARY_IMAGE_URL_FIELD_NUMBER: _ClassVar[int]
+    CREATED_AT_FIELD_NUMBER: _ClassVar[int]
+    READ_AT_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    passenger_id: str
+    lost_report_id: str
+    found_item_id: str
+    similarity_score: float
+    item_name: str
+    image_urls: _containers.RepeatedScalarFieldContainer[str]
+    primary_image_url: str
+    created_at: _timestamp_pb2.Timestamp
+    read_at: _timestamp_pb2.Timestamp
+    def __init__(self, id: _Optional[str] = ..., passenger_id: _Optional[str] = ..., lost_report_id: _Optional[str] = ..., found_item_id: _Optional[str] = ..., similarity_score: _Optional[float] = ..., item_name: _Optional[str] = ..., image_urls: _Optional[_Iterable[str]] = ..., primary_image_url: _Optional[str] = ..., created_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., read_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+
+class ListNotificationsRequest(_message.Message):
+    __slots__ = ("limit", "unread_only", "created_before")
+    LIMIT_FIELD_NUMBER: _ClassVar[int]
+    UNREAD_ONLY_FIELD_NUMBER: _ClassVar[int]
+    CREATED_BEFORE_FIELD_NUMBER: _ClassVar[int]
+    limit: int
+    unread_only: bool
+    created_before: _timestamp_pb2.Timestamp
+    def __init__(self, limit: _Optional[int] = ..., unread_only: bool = ..., created_before: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+
+class ListNotificationsResponse(_message.Message):
+    __slots__ = ("notifications",)
+    NOTIFICATIONS_FIELD_NUMBER: _ClassVar[int]
+    notifications: _containers.RepeatedCompositeFieldContainer[PassengerMatchNotification]
+    def __init__(self, notifications: _Optional[_Iterable[_Union[PassengerMatchNotification, _Mapping]]] = ...) -> None: ...
+
+class MarkNotificationReadRequest(_message.Message):
+    __slots__ = ("notification_ids",)
+    NOTIFICATION_IDS_FIELD_NUMBER: _ClassVar[int]
+    notification_ids: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, notification_ids: _Optional[_Iterable[str]] = ...) -> None: ...

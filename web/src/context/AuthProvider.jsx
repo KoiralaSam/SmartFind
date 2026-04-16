@@ -74,7 +74,7 @@ export function AuthProvider({ children }) {
     }
     let payload;
     try {
-      const res = await fetch("http://localhost:8081/passenger/login", {
+      const res = await fetch("/passenger/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
