@@ -221,11 +221,8 @@ func (s *PassengerService) FileClaim(ctx context.Context, in inbound.FileClaimIn
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}
-	created, err := s.repo.CreateItemClaim(ctx, claim)
+	created, err := s.repo.CreateItemClaimAndMarkLostReportMatched(ctx, claim)
 	if err != nil {
-		return nil, err
-	}
-	if err := s.repo.UpdateLostReportStatus(ctx, in.PassengerID, in.LostReportID, "matched"); err != nil {
 		return nil, err
 	}
 	return created, nil
