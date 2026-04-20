@@ -11,6 +11,7 @@ import (
 	"smartfind/services/staff-service/internal/core/domain"
 	"smartfind/services/staff-service/internal/core/ports/inbound"
 	"smartfind/services/staff-service/internal/core/ports/outbound"
+	"smartfind/shared/embedtext"
 	"smartfind/shared/env"
 	"smartfind/shared/jwt"
 	"smartfind/shared/openai"
@@ -286,27 +287,18 @@ func validClaimStatusFilter(s string) bool {
 }
 
 func buildFoundItemEmbeddingText(in inbound.CreateFoundItemInput) string {
-	parts := []string{
-		in.ItemName,
-		in.ItemDescription,
-		in.ItemType,
-		in.Brand,
-		in.Model,
-		in.Color,
-		in.Material,
-		in.ItemCondition,
-		in.Category,
-		in.LocationFound,
-		in.RouteOrStation,
-		in.RouteID,
-	}
-
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		t := strings.TrimSpace(p)
-		if t != "" {
-			out = append(out, t)
-		}
-	}
-	return strings.Join(out, " | ")
+	return embedtext.JoinNonEmpty([]embedtext.Pair{
+		{Slot: embedtext.SlotItemName, Value: in.ItemName},
+		{Slot: embedtext.SlotItemDescription, Value: in.ItemDescription},
+		{Slot: embedtext.SlotItemType, Value: in.ItemType},
+		{Slot: embedtext.SlotBrand, Value: in.Brand},
+		{Slot: embedtext.SlotModel, Value: in.Model},
+		{Slot: embedtext.SlotColor, Value: in.Color},
+		{Slot: embedtext.SlotMaterial, Value: in.Material},
+		{Slot: embedtext.SlotItemCondition, Value: in.ItemCondition},
+		{Slot: embedtext.SlotCategory, Value: in.Category},
+		{Slot: embedtext.SlotLocation, Value: in.LocationFound},
+		{Slot: embedtext.SlotRoute, Value: in.RouteOrStation},
+		{Slot: embedtext.SlotRouteID, Value: in.RouteID},
+	})
 }

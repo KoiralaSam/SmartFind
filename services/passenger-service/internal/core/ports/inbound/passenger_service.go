@@ -24,6 +24,29 @@ type CreateLostReportInput struct {
 	DateLost        time.Time
 }
 
+// UpdateLostReportInput patches a subset of fields on an existing lost
+// report. Only non-nil pointers are applied, which lets callers
+// distinguish "clear this field" (empty-string pointer) from "leave this
+// field alone" (nil pointer). If any of the twelve embedded slots change,
+// the passenger service recomputes the embedding.
+type UpdateLostReportInput struct {
+	PassengerID     string
+	LostReportID    string
+	ItemName        *string
+	ItemDescription *string
+	ItemType        *string
+	Brand           *string
+	Model           *string
+	Color           *string
+	Material        *string
+	ItemCondition   *string
+	Category        *string
+	LocationLost    *string
+	RouteOrStation  *string
+	RouteID         *string
+	DateLost        *time.Time
+}
+
 type LostReport struct {
 	ID                  string
 	ReporterPassengerID string
@@ -143,6 +166,7 @@ type PassengerUsecase interface {
 	// Login verifies the Google ID token (GOOGLE_CLIENT_ID), creates or updates the passenger row, and returns a JWT.
 	Login(ctx context.Context, in LoginInput) (*LoginResult, error)
 	CreateLostReport(ctx context.Context, in CreateLostReportInput) (*LostReport, error)
+	UpdateLostReport(ctx context.Context, in UpdateLostReportInput) (*LostReport, error)
 	ListLostReports(ctx context.Context, in ListLostReportsInput) ([]LostReport, error)
 	DeleteLostReport(ctx context.Context, passengerID, lostReportID string) error
 	SearchFoundItemMatches(ctx context.Context, in SearchFoundItemsInput) ([]FoundItemMatch, error)
