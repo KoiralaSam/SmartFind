@@ -45,6 +45,7 @@ export default defineConfig({
         target: process.env.CHAT_AGENT_URL || "http://localhost:8090",
         rewrite: (path) => path.replace(/^\/api/, ""),
         changeOrigin: true,
+        ws: true,
       },
     },
   },

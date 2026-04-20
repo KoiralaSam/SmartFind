@@ -4,11 +4,31 @@
 // If you want to hit the gateway directly from the browser, set:
 //   VITE_API_GATEWAY_URL=http://localhost:8081
 const GATEWAY_BASE_URL = import.meta.env.VITE_API_GATEWAY_URL || "";
+const STORAGE_KEY = "smartfind-auth";
+
+function getSessionToken() {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return "";
+    const parsed = JSON.parse(raw);
+    return String(parsed?.sessionToken || "").trim();
+  } catch {
+    return "";
+  }
+}
 
 async function requestJSON(path, options) {
+  const sessionToken = getSessionToken();
+  const hasAuthHeader = Boolean(options?.headers?.Authorization);
   const res = await fetch(`${GATEWAY_BASE_URL}${path}`, {
     credentials: "include",
-    headers: { "Content-Type": "application/json", ...(options?.headers || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(sessionToken && !hasAuthHeader
+        ? { Authorization: `Bearer ${sessionToken}` }
+        : {}),
+      ...(options?.headers || {}),
+    },
     ...options,
   });
   const data = await res.json().catch(() => null);
@@ -44,6 +64,22 @@ export async function staffLogout() {
 
 export async function passengerLogout() {
   return requestJSON("/passenger/logout", { method: "POST", body: "{}" });
+}
+
+export async function passengerListLostReports(params) {
+  const q = new URLSearchParams();
+  if (params?.status) q.set("status", params.status);
+  const suffix = q.toString() ? `?${q.toString()}` : "";
+  return requestJSON(`/passenger/lost-reports${suffix}`, { method: "GET" });
+}
+
+export async function passengerListClaims(params) {
+  const q = new URLSearchParams();
+  if (params?.status) q.set("status", params.status);
+  if (params?.limit != null) q.set("limit", String(params.limit));
+  if (params?.offset != null) q.set("offset", String(params.offset));
+  const suffix = q.toString() ? `?${q.toString()}` : "";
+  return requestJSON(`/passenger/claims${suffix}`, { method: "GET" });
 }
 
 export async function staffListFoundItems(params) {

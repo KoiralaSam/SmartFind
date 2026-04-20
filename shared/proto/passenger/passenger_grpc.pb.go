@@ -26,6 +26,7 @@ const (
 	PassengerService_DeleteLostReport_FullMethodName       = "/smartfind.passenger.v1.PassengerService/DeleteLostReport"
 	PassengerService_SearchFoundItemMatches_FullMethodName = "/smartfind.passenger.v1.PassengerService/SearchFoundItemMatches"
 	PassengerService_FileClaim_FullMethodName              = "/smartfind.passenger.v1.PassengerService/FileClaim"
+	PassengerService_ListMyClaims_FullMethodName           = "/smartfind.passenger.v1.PassengerService/ListMyClaims"
 	PassengerService_ListNotifications_FullMethodName      = "/smartfind.passenger.v1.PassengerService/ListNotifications"
 	PassengerService_MarkNotificationRead_FullMethodName   = "/smartfind.passenger.v1.PassengerService/MarkNotificationRead"
 )
@@ -40,6 +41,7 @@ type PassengerServiceClient interface {
 	DeleteLostReport(ctx context.Context, in *DeleteLostReportRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	SearchFoundItemMatches(ctx context.Context, in *SearchFoundItemMatchesRequest, opts ...grpc.CallOption) (*SearchFoundItemMatchesResponse, error)
 	FileClaim(ctx context.Context, in *FileClaimRequest, opts ...grpc.CallOption) (*ItemClaim, error)
+	ListMyClaims(ctx context.Context, in *ListMyClaimsRequest, opts ...grpc.CallOption) (*ListMyClaimsResponse, error)
 	ListNotifications(ctx context.Context, in *ListNotificationsRequest, opts ...grpc.CallOption) (*ListNotificationsResponse, error)
 	MarkNotificationRead(ctx context.Context, in *MarkNotificationReadRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
@@ -112,6 +114,16 @@ func (c *passengerServiceClient) FileClaim(ctx context.Context, in *FileClaimReq
 	return out, nil
 }
 
+func (c *passengerServiceClient) ListMyClaims(ctx context.Context, in *ListMyClaimsRequest, opts ...grpc.CallOption) (*ListMyClaimsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListMyClaimsResponse)
+	err := c.cc.Invoke(ctx, PassengerService_ListMyClaims_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *passengerServiceClient) ListNotifications(ctx context.Context, in *ListNotificationsRequest, opts ...grpc.CallOption) (*ListNotificationsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ListNotificationsResponse)
@@ -142,6 +154,7 @@ type PassengerServiceServer interface {
 	DeleteLostReport(context.Context, *DeleteLostReportRequest) (*emptypb.Empty, error)
 	SearchFoundItemMatches(context.Context, *SearchFoundItemMatchesRequest) (*SearchFoundItemMatchesResponse, error)
 	FileClaim(context.Context, *FileClaimRequest) (*ItemClaim, error)
+	ListMyClaims(context.Context, *ListMyClaimsRequest) (*ListMyClaimsResponse, error)
 	ListNotifications(context.Context, *ListNotificationsRequest) (*ListNotificationsResponse, error)
 	MarkNotificationRead(context.Context, *MarkNotificationReadRequest) (*emptypb.Empty, error)
 	mustEmbedUnimplementedPassengerServiceServer()
@@ -171,6 +184,9 @@ func (UnimplementedPassengerServiceServer) SearchFoundItemMatches(context.Contex
 }
 func (UnimplementedPassengerServiceServer) FileClaim(context.Context, *FileClaimRequest) (*ItemClaim, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FileClaim not implemented")
+}
+func (UnimplementedPassengerServiceServer) ListMyClaims(context.Context, *ListMyClaimsRequest) (*ListMyClaimsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListMyClaims not implemented")
 }
 func (UnimplementedPassengerServiceServer) ListNotifications(context.Context, *ListNotificationsRequest) (*ListNotificationsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListNotifications not implemented")
@@ -307,6 +323,24 @@ func _PassengerService_FileClaim_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _PassengerService_ListMyClaims_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListMyClaimsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PassengerServiceServer).ListMyClaims(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PassengerService_ListMyClaims_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PassengerServiceServer).ListMyClaims(ctx, req.(*ListMyClaimsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _PassengerService_ListNotifications_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListNotificationsRequest)
 	if err := dec(in); err != nil {
@@ -373,6 +407,10 @@ var PassengerService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FileClaim",
 			Handler:    _PassengerService_FileClaim_Handler,
+		},
+		{
+			MethodName: "ListMyClaims",
+			Handler:    _PassengerService_ListMyClaims_Handler,
 		},
 		{
 			MethodName: "ListNotifications",

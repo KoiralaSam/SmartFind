@@ -53,7 +53,9 @@ DEFAULT_PASSENGER_SERVICE_ADDRESS = "passenger-service:50051"
 
 class ChatAction:
     CREATE_LOST_REPORT = "create_lost_report"
+    CHECK_MY_LOST_ITEM = "check_my_lost_item"
     LIST_LOST_REPORTS = "list_lost_reports"
+    LIST_MY_CLAIMS = "list_my_claims"
     DELETE_LOST_REPORT = "delete_lost_report"
     SEARCH_FOUND_ITEM_MATCHES = "search_found_item_matches"
     FILE_CLAIM = "file_claim"
@@ -192,8 +194,12 @@ def _infer_action(payload: Dict[str, Any]) -> str:
         "create_lost_report_request",
     ):
         return ChatAction.CREATE_LOST_REPORT
+    if normalized in ("checkmylostitem", "check_my_lost_item", "check_lost_item", "check_status"):
+        return ChatAction.CHECK_MY_LOST_ITEM
     if normalized in ("listlostreports", "list_lost_reports"):
         return ChatAction.LIST_LOST_REPORTS
+    if normalized in ("listclaims", "list_claims", "list_my_claims", "show_claims", "my_claims"):
+        return ChatAction.LIST_MY_CLAIMS
     if normalized in ("deletelostreport", "delete_lost_report"):
         return ChatAction.DELETE_LOST_REPORT
     if normalized in ("searchfounditemmatches", "search_found_item_matches"):
@@ -281,6 +287,26 @@ class PassengerGrpcHandler:
             req, timeout=self._timeout_seconds, metadata=self._metadata(forwarded_token)
         )
 
+    async def list_my_claims(
+        self,
+        *,
+        passenger_id: str,
+        status: str = "",
+        limit: int = 50,
+        offset: int = 0,
+        forwarded_token: Optional[str] = None,
+    ) -> passenger_pb2.ListMyClaimsResponse:
+        stub = await self._get_stub()
+        req = passenger_pb2.ListMyClaimsRequest(
+            passenger_id=passenger_id,
+            status=status,
+            limit=int(limit),
+            offset=int(offset),
+        )
+        return await stub.ListMyClaims(
+            req, timeout=self._timeout_seconds, metadata=self._metadata(forwarded_token)
+        )
+
     async def delete_lost_report(
         self, *, passenger_id: str, lost_report_id: str, forwarded_token: Optional[str] = None
     ) -> None:
@@ -309,6 +335,46 @@ class PassengerGrpcHandler:
         return await stub.SearchFoundItemMatches(
             req, timeout=self._timeout_seconds, metadata=self._metadata(forwarded_token)
         )
+
+    async def check_my_lost_item(
+        self,
+        *,
+        passenger_id: str,
+        lost_report_id: str = "",
+        status: str = "open",
+        limit: int = 10,
+        forwarded_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        resp = await self.list_lost_reports(
+            passenger_id=passenger_id, status=status, forwarded_token=forwarded_token
+        )
+        resp_dict = MessageToDict(resp, preserving_proto_field_name=True)
+        reports = resp_dict.get("reports") or []
+        chosen = None
+        if lost_report_id:
+            for r in reports:
+                if str(r.get("id") or "").strip() == lost_report_id:
+                    chosen = r
+                    break
+        if chosen is None and reports:
+            # Use the most recent report (passenger-service orders by created_at DESC).
+            chosen = reports[0]
+
+        matches: list[Dict[str, Any]] = []
+        chosen_id = (chosen or {}).get("id") or ""
+        if chosen_id:
+            try:
+                mresp = await self.search_found_item_matches(
+                    passenger_id=passenger_id,
+                    lost_report_id=chosen_id,
+                    limit=limit,
+                    forwarded_token=forwarded_token,
+                )
+                matches = (MessageToDict(mresp, preserving_proto_field_name=True).get("matches") or [])
+            except Exception:
+                matches = []
+
+        return {"report": chosen or {}, "lost_report_id": chosen_id, "matches": matches, "reports": reports}
 
     async def file_claim(
         self,
@@ -365,11 +431,43 @@ class PassengerGrpcHandler:
                     },
                 )
 
+            if action == ChatAction.CHECK_MY_LOST_ITEM:
+                data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+                status = (data.get("status") or "open").strip() or "open"
+                limit = int(data.get("limit") or 10)
+                lost_report_id = (data.get("lost_report_id") or "").strip()
+                out = await self.check_my_lost_item(
+                    passenger_id=passenger_id,
+                    lost_report_id=lost_report_id,
+                    status=status,
+                    limit=limit,
+                    forwarded_token=forwarded_token,
+                )
+                return ChatDispatchResult(action=action, ok=True, data=out)
+
             if action == ChatAction.LIST_LOST_REPORTS:
                 data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
                 status = (data.get("status") or "").strip()
                 resp = await self.list_lost_reports(
                     passenger_id=passenger_id, status=status, forwarded_token=forwarded_token
+                )
+                return ChatDispatchResult(
+                    action=action,
+                    ok=True,
+                    data=MessageToDict(resp, preserving_proto_field_name=True),
+                )
+
+            if action == ChatAction.LIST_MY_CLAIMS:
+                data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+                status = (data.get("status") or "").strip()
+                limit = int(data.get("limit") or 50)
+                offset = int(data.get("offset") or 0)
+                resp = await self.list_my_claims(
+                    passenger_id=passenger_id,
+                    status=status,
+                    limit=limit,
+                    offset=offset,
+                    forwarded_token=forwarded_token,
                 )
                 return ChatDispatchResult(
                     action=action,
@@ -393,7 +491,14 @@ class PassengerGrpcHandler:
                 data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
                 lost_report_id = (data.get("lost_report_id") or "").strip()
                 if not lost_report_id:
-                    raise ValueError("missing lost_report_id for search_found_item_matches")
+                    out = await self.check_my_lost_item(
+                        passenger_id=passenger_id,
+                        lost_report_id="",
+                        status="open",
+                        limit=int(data.get("limit") or 10),
+                        forwarded_token=forwarded_token,
+                    )
+                    return ChatDispatchResult(action=ChatAction.CHECK_MY_LOST_ITEM, ok=True, data=out)
                 limit = int(data.get("limit") or 10)
                 resp = await self.search_found_item_matches(
                     passenger_id=passenger_id,
