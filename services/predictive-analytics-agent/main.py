@@ -619,9 +619,17 @@ def get_heatmap(days: int = 90):
             "recommendations": row["ai_recommendations"],
         }
 
-    # No stored report — live PostgreSQL aggregation (fast, no BigQuery sync needed)
+    # No stored report — query PostgreSQL then run Groq to generate recommendations
+    if not os.environ.get("GROQ_API_KEY"):
+        return {
+            "source": "unavailable",
+            "message": "GROQ_API_KEY not configured.",
+            "total_incidents": 0,
+            "hotspots": [],
+        }
+
     try:
-        live = _fetch_route_stats_postgres(days)
+        live_stats = _fetch_route_stats_postgres(days)
     except Exception as e:
         logger.warning(f"Live PostgreSQL query failed: {e}")
         return {
@@ -631,7 +639,7 @@ def get_heatmap(days: int = 90):
             "hotspots": [],
         }
 
-    if live.get("total_incidents", 0) == 0:
+    if live_stats.get("total_incidents", 0) == 0:
         return {
             "source": "live",
             "message": "No incidents recorded yet. The heatmap will populate as data arrives.",
@@ -639,48 +647,62 @@ def get_heatmap(days: int = 90):
             "hotspots": [],
         }
 
-    return {
-        "source": "live",
-        "period_days": days,
-        "total_incidents": live["total_incidents"],
-        "hotspots": live.get("locations", []),
-    }
+    # Generate Groq report from live PostgreSQL data and persist it
+    try:
+        logger.info("No stored report found — generating live Groq report from PostgreSQL")
+        report = run_analytics_postgres()
+        try:
+            save_report(report, date.today())
+            logger.info("Live Groq report saved to hotspot_reports")
+        except Exception as save_err:
+            logger.warning(f"Could not persist live report: {save_err}")
+        return {
+            "source": "stored_report",
+            "report_date": date.today().isoformat(),
+            "generated_at": datetime.now().isoformat(),
+            "total_incidents": report.get("total_incidents_analyzed", live_stats["total_incidents"]),
+            "hotspots": report.get("hotspots", []),
+            "temporal_insights": report.get("temporal_insights", {}),
+            "summary": report.get("summary", ""),
+            "recommendations": report.get("recommendations", []),
+        }
+    except Exception as e:
+        logger.warning(f"Groq report generation failed: {e}")
+        return {
+            "source": "live",
+            "period_days": days,
+            "total_incidents": live_stats["total_incidents"],
+            "hotspots": live_stats.get("locations", []),
+        }
 
 
 def _fetch_route_stats_postgres(days_back: int) -> dict:
-    """
-    Direct PostgreSQL query used only for the live heatmap fallback.
-    Uses passenger lost_reports only — found_items are not loss hotspot indicators.
-    """
-    since = datetime.now() - timedelta(days=days_back)
-
+    """Fetch found_items counts per route/station from PostgreSQL."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
                 SELECT
-                    COALESCE(r.route_name, lr.route_or_station, 'Unknown') AS location,
-                    lr.route_id::text                                        AS route_id,
-                    COUNT(lr.id)                                             AS incident_count,
-                    COUNT(lr.id) FILTER (WHERE lr.status = 'open')          AS open_count,
-                    COUNT(lr.id) FILTER (WHERE lr.status = 'matched')       AS matched_count,
-                    MAX(lr.created_at)                                       AS last_incident
-                FROM lost_reports lr
-                LEFT JOIN routes r ON r.id = lr.route_id
-                GROUP BY location, lr.route_id
+                    COALESCE(r.route_name, fi.route_or_station, fi.location_found, 'Unknown') AS location,
+                    fi.route_id::text                                                           AS route_id,
+                    COUNT(fi.id)                                                                AS incident_count,
+                    COUNT(fi.id) FILTER (WHERE fi.status = 'unclaimed')                        AS open_count,
+                    COUNT(fi.id) FILTER (WHERE fi.status = 'claimed')                          AS matched_count,
+                    MAX(fi.created_at)                                                          AS last_incident
+                FROM found_items fi
+                LEFT JOIN routes r ON r.id = fi.route_id
+                GROUP BY location, fi.route_id
                 ORDER BY incident_count DESC
                 LIMIT 20
                 """
             )
             rows = cur.fetchall()
-
-            cur.execute("SELECT COUNT(*) AS n FROM lost_reports")
+            cur.execute("SELECT COUNT(*) AS n FROM found_items")
             total_row = cur.fetchone()
             total = total_row["n"] if total_row else 0
 
     return {
         "period_days": days_back,
-        "since": since.isoformat(),
         "total_incidents": total,
         "locations": [
             {
@@ -694,6 +716,112 @@ def _fetch_route_stats_postgres(days_back: int) -> dict:
             for r in rows
         ],
     }
+
+
+def _fetch_temporal_patterns_postgres(days_back: int) -> dict:
+    """Fetch time-based patterns from found_items in PostgreSQL."""
+    since = datetime.now() - timedelta(days=days_back)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT TO_CHAR(created_at, 'Day') AS day_name,
+                       EXTRACT(DOW FROM created_at)::int AS day_num,
+                       COUNT(*) AS incident_count
+                FROM found_items WHERE created_at >= %s
+                GROUP BY day_name, day_num ORDER BY day_num
+                """,
+                (since,),
+            )
+            by_day = [dict(r) for r in cur.fetchall()]
+
+            cur.execute(
+                """
+                SELECT TO_CHAR(created_at, 'YYYY-MM') AS month,
+                       COUNT(*) AS incident_count
+                FROM found_items WHERE created_at >= %s
+                GROUP BY month ORDER BY month
+                """,
+                (since,),
+            )
+            by_month = [dict(r) for r in cur.fetchall()]
+
+            cur.execute(
+                """
+                SELECT EXTRACT(HOUR FROM created_at)::int AS hour_of_day,
+                       COUNT(*) AS incident_count
+                FROM found_items WHERE created_at >= %s
+                GROUP BY hour_of_day ORDER BY hour_of_day
+                """,
+                (since,),
+            )
+            by_hour = [dict(r) for r in cur.fetchall()]
+
+    return {
+        "period_days": days_back,
+        "by_day_of_week": by_day,
+        "by_month": by_month,
+        "by_hour_of_day": by_hour,
+    }
+
+
+def _fetch_category_hotspots_postgres(days_back: int, top_n: int = 10) -> dict:
+    """Fetch category distribution per location from found_items in PostgreSQL."""
+    since = datetime.now() - timedelta(days=days_back)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT COALESCE(r.route_name, fi.route_or_station, fi.location_found, 'Unknown') AS location,
+                       COALESCE(fi.category, 'Other') AS category,
+                       COUNT(*) AS count
+                FROM found_items fi
+                LEFT JOIN routes r ON r.id = fi.route_id
+                WHERE fi.created_at >= %s
+                GROUP BY location, category
+                ORDER BY location, count DESC
+                LIMIT %s
+                """,
+                (since, top_n * 5),
+            )
+            rows = cur.fetchall()
+
+            cur.execute(
+                """
+                SELECT COALESCE(category, 'Other') AS category, COUNT(*) AS count
+                FROM found_items WHERE created_at >= %s
+                GROUP BY category ORDER BY count DESC
+                """,
+                (since,),
+            )
+            overall = [dict(r) for r in cur.fetchall()]
+
+    location_map: dict[str, list] = {}
+    for row in rows:
+        loc = row["location"]
+        if loc not in location_map:
+            location_map[loc] = []
+        location_map[loc].append({"category": row["category"], "count": row["count"]})
+
+    return {
+        "period_days": days_back,
+        "by_location": [
+            {"location": loc, "top_categories": cats[:5]}
+            for loc, cats in list(location_map.items())[:top_n]
+        ],
+        "overall_category_distribution": overall,
+    }
+
+
+def run_analytics_postgres() -> dict:
+    """
+    Query PostgreSQL directly (no BigQuery sync) and use Groq to generate
+    a hotspot report. Used as the live fallback in GET /analytics/heatmap.
+    """
+    route_stats = _fetch_route_stats_postgres(90)
+    temporal_stats = _fetch_temporal_patterns_postgres(90)
+    category_stats = _fetch_category_hotspots_postgres(90, top_n=10)
+    return generate_hotspot_report(route_stats, temporal_stats, category_stats)
 
 
 @app.get("/analytics/hotspots")
