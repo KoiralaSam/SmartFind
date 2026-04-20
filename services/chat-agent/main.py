@@ -325,6 +325,71 @@ _SLOT_ORDER = [
     "time_lost",
 ]
 
+def _clean_route_value(text: str) -> str:
+    cleaned = re.sub(r"^[\s,.;:!?-]+|[\s,.;:!?-]+$", "", text or "")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if not cleaned:
+        return ""
+    # Trim leading phrasing so we keep only city/stop text.
+    cleaned = re.sub(
+        r"^(?:i(?:'m| am)?\s+)?(?:was\s+)?(?:going|headed|heading|travel(?:ling)?|coming|from|to)\s+",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    ).strip()
+    # Keep up to two words for compact city/stop names.
+    tokens = cleaned.split()
+    if len(tokens) > 2:
+        cleaned = " ".join(tokens[:2])
+    return cleaned
+
+_UNKNOWN_ANSWER_PATTERNS = [
+    r"^\s*unknown\b",
+    r"\bunknown\s+(?:brand|color|colour|model|type|kind)\b",
+    r"^\s*(?:i|we)?\s*(?:do\s*n'?t|don'?t|do not)\s+(?:know|remember|recall)\b",
+    r"^\s*not\s+(?:sure|really sure)\b",
+    r"^\s*no\s+idea\b",
+    r"^\s*n\s*/?\s*a\s*$",
+    r"^\s*none\s*$",
+    r"^\s*skip\s*$",
+]
+
+def _is_unknown_answer(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    return any(re.search(p, t) for p in _UNKNOWN_ANSWER_PATTERNS)
+
+def _short_clean(text: str, max_words: int) -> str:
+    cleaned = re.sub(r"^[\s,.;:!?-]+|[\s,.;:!?-]+$", "", text or "")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if not cleaned:
+        return ""
+    tokens = cleaned.split()
+    if len(tokens) > max_words:
+        cleaned = " ".join(tokens[:max_words])
+    return cleaned
+
+def _parse_route_pair(text: str) -> tuple[str, str]:
+    msg = (text or "").strip()
+    if not msg:
+        return "", ""
+    m = re.search(
+        r"\bfrom\s+([a-zA-Z][a-zA-Z ]{0,40}?)\s+to\s+([a-zA-Z][a-zA-Z ]{0,40}?)\b",
+        msg,
+        re.IGNORECASE,
+    )
+    if m:
+        return _clean_route_value(m.group(1)), _clean_route_value(m.group(2))
+    m = re.search(
+        r"\b([a-zA-Z][a-zA-Z ]{0,40}?)\s+to\s+([a-zA-Z][a-zA-Z ]{0,40}?)\b",
+        msg,
+        re.IGNORECASE,
+    )
+    if m:
+        return _clean_route_value(m.group(1)), _clean_route_value(m.group(2))
+    return "", ""
+
 def _extract_slots_from_conversation(conversation: List[dict]) -> dict:
     state = {k: "" for k in _SLOT_ORDER}
     user_texts = [str(m.get("content") or "") for m in conversation if m.get("role") == "user"]
@@ -377,19 +442,76 @@ def _extract_slots_from_conversation(conversation: List[dict]) -> dict:
             state["description"] = t.strip()[:160]
             break
 
-    # route_from / route_to
-    m = re.search(r"\bfrom\s+([a-zA-Z][a-zA-Z ]{1,40}?)\s+to\s+([a-zA-Z][a-zA-Z ]{1,40}?)\b", combined, re.IGNORECASE)
-    if m:
-        state["route_from"] = m.group(1).strip()
-        state["route_to"] = m.group(2).strip()
+    # Prefer direct answers to the slot the assistant just asked about.
+    for idx in range(1, len(conversation)):
+        msg = conversation[idx]
+        prev = conversation[idx - 1]
+        if msg.get("role") != "user" or prev.get("role") != "assistant":
+            continue
+        asked = _asked_slot_from_reply(str(prev.get("content") or ""))
+        if not asked:
+            continue
+        user_msg = str(msg.get("content") or "").strip()
+        if not user_msg:
+            continue
+
+        if asked in ("route_from", "route_to"):
+            frm, to = _parse_route_pair(user_msg)
+            if frm and not state["route_from"]:
+                state["route_from"] = frm
+            if to and not state["route_to"]:
+                state["route_to"] = to
+            if asked == "route_from" and not state["route_from"]:
+                state["route_from"] = _clean_route_value(user_msg)
+            elif asked == "route_to" and not state["route_to"]:
+                state["route_to"] = _clean_route_value(user_msg)
+            continue
+
+        if state.get(asked):
+            continue
+
+        if _is_unknown_answer(user_msg):
+            state[asked] = "unknown"
+            continue
+
+        if asked == "item_name":
+            state[asked] = _short_clean(user_msg, 5)[:40]
+        elif asked == "color":
+            state[asked] = _short_clean(user_msg, 3)[:40]
+        elif asked == "brand":
+            state[asked] = _short_clean(user_msg, 4)[:40]
+        elif asked == "description":
+            state[asked] = user_msg[:160]
+        elif asked == "date_lost":
+            mdate = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", user_msg)
+            if mdate:
+                state[asked] = mdate.group(1)
+            else:
+                rel = _resolve_relative_date_words(user_msg.lower())
+                if rel:
+                    state[asked] = rel
+        elif asked == "time_lost":
+            mtime = re.search(r"\b(\d{1,2}:\d{2})\b", user_msg)
+            if mtime:
+                state[asked] = mtime.group(1)
+            elif "noon" in user_msg.lower():
+                state[asked] = "12:00"
+            elif "midnight" in user_msg.lower():
+                state[asked] = "00:00"
+
+    frm, to = _parse_route_pair(combined)
+    if not state["route_from"] and frm:
+        state["route_from"] = frm
+    if not state["route_to"] and to:
+        state["route_to"] = to
     if not state["route_from"]:
-        m2 = re.search(r"\bat\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)", combined)
+        m2 = re.search(r"\bat\s+([a-zA-Z][a-zA-Z ]{0,40})\b", combined, re.IGNORECASE)
         if m2:
-            state["route_from"] = m2.group(1).strip()
+            state["route_from"] = _clean_route_value(m2.group(1))
     if not state["route_to"]:
-        m3 = re.search(r"\b(?:going|heading|traveling|travelling)\s+to\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)", combined)
+        m3 = re.search(r"\b(?:going|heading|traveling|travelling)\s+to\s+([a-zA-Z][a-zA-Z ]{0,40})\b", combined, re.IGNORECASE)
         if m3:
-            state["route_to"] = m3.group(1).strip()
+            state["route_to"] = _clean_route_value(m3.group(1))
 
     # date/time if explicit
     mdate = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", lower_all)
