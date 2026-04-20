@@ -6,8 +6,13 @@ import os
 import json
 import asyncio
 import logging
+import re
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv, find_dotenv
-from groq import Groq
+import websockets
+import base64
+import httpx
+from openai import OpenAI
 
 load_dotenv(find_dotenv())
 
@@ -32,6 +37,10 @@ Begin with a warm, empathetic greeting. Acknowledge that losing an item can be s
 
 Example opening:
 "Hello! I'm so sorry to hear you've lost something — I know how stressful that can be. I'm here to help you file a lost item report. Could you start by telling me what item you lost?"
+
+IMPORTANT: The frontend may already have shown the greeting as an initial assistant message.
+If you can see ANY prior assistant greeting or the passenger has already started describing the item,
+do NOT greet again. Never restart the script.
 
 -----------------------------------
 OBJECTIVE
@@ -59,6 +68,17 @@ BEHAVIOR RULES
 7. For location, ask: "What was your departure city or stop?" then "What was your destination city or stop?"
 8. For date: if the user says "today" or "yesterday", you know the date — resolve it yourself. If ambiguous, ask.
 9. For time: if the user says "noon" use 12:00, "midnight" use 00:00. If they say vague words like "morning", "afternoon", "evening", or "around X", ask for a more specific time (e.g., "Could you give me an approximate time, like 2:00 PM?").
+9.1. NEVER ask again for a field that the passenger already provided earlier in the conversation.
+     Example: if they said "white AirPods", do not ask "what item" or "what color" again.
+10. If the passenger says they have ALREADY filed a report, or asks for updates / whether it was found:
+    - Do NOT start a new intake.
+    - Do NOT ask for a lost_report_id (passengers often don’t have it).
+    - Instead, use the backend action "check_my_lost_item" to look up their most recent open report and search for matches.
+11. If the passenger asks to delete a report but doesn’t know the report ID:
+    - Use "list_lost_reports" first, show a short numbered list (human readable), and ask which one to delete.
+    - Only call "delete_lost_report" after the passenger clearly selects a specific report ID.
+12. If the passenger asks to see their claims:
+    - Use "list_my_claims" (do NOT output raw JSON that the user must interpret).
 
 -----------------------------------
 CONFIRMATION STEP (before final output)
@@ -120,10 +140,19 @@ IMPORTANT
 You are NOT a general assistant.
 
 -----------------------------------
+VOICE CHAT (important)
+-----------------------------------
+The passenger may speak their message via voice. Treat voice input the same as typed input.
+Keep responses concise and avoid long multi-paragraph blocks.
+
+-----------------------------------
 BACKEND ACTIONS (optional)
 -----------------------------------
 If the passenger asks you to perform one of these actions, respond with a single JSON object (and nothing else)
 so the server can call the backend:
+
+0) Check the status / see if their lost item was found (if they say they've already filed a report, or ask for updates):
+{"action":"check_my_lost_item","data":{"status":"open","limit":10}}
 
 1) List their lost reports:
 {"action":"list_lost_reports","data":{"status":""}}
@@ -136,6 +165,9 @@ so the server can call the backend:
 
 4) File a claim on a found item:
 {"action":"file_claim","data":{"found_item_id":"","lost_report_id":"","message":""}}
+
+5) List my claims:
+{"action":"list_my_claims","data":{"status":"","limit":50,"offset":0}}
 
 For creating a lost report, keep using the existing confirmed intake JSON format."""
 
@@ -160,17 +192,316 @@ class ChatResponse(BaseModel):
     grpc_error: str | None = None
 
 
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+openai_client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
 
 from grpc_handler import PassengerGrpcHandler  # noqa: E402
 
 passenger_grpc = PassengerGrpcHandler()
 
+_SESSION_TTL_SECONDS = 30 * 60
+_SESSION_MAX_MESSAGES = 60
+_session_lock = asyncio.Lock()
+_sessions: dict[str, dict] = {}
 
-def call_groq(conversation: List[dict]) -> str:
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+def _today_iso() -> str:
+    return _utc_now().date().isoformat()
+
+def _resolve_relative_date_words(text: str) -> str:
+    lower = (text or "").strip().lower()
+    today = _utc_now().date()
+    if "day before yesterday" in lower:
+        return (today - timedelta(days=2)).isoformat()
+    if "yesterday" in lower:
+        return (today - timedelta(days=1)).isoformat()
+    if "today" in lower:
+        return today.isoformat()
+    return ""
+
+def _looks_like_status_check(user_text: str) -> bool:
+    t = (user_text or "").strip().lower()
+    if not t:
+        return False
+    phrases = [
+        "already filed",
+        "already submitted",
+        "already made a report",
+        "i filed",
+        "i filed my report",
+        "check if",
+        "did you find",
+        "have you found",
+        "any update",
+        "any updates",
+        "status of my report",
+        "see if you found",
+        "see if you've found",
+        "found my",
+        "matches for my",
+    ]
+    return any(p in t for p in phrases)
+
+def _looks_like_list_lost_reports(user_text: str) -> bool:
+    t = (user_text or "").strip().lower()
+    if not t:
+        return False
+    return ("lost report" in t or "lost reports" in t) and any(w in t for w in ("show", "list", "see", "all"))
+
+def _looks_like_list_claims(user_text: str) -> bool:
+    t = (user_text or "").strip().lower()
+    if not t:
+        return False
+    return ("claim" in t or "claims" in t) and any(w in t for w in ("show", "list", "see", "all"))
+
+def _looks_like_delete_lost_report(user_text: str) -> bool:
+    t = (user_text or "").strip().lower()
+    if not t:
+        return False
+    return ("delete" in t or "remove" in t) and ("lost report" in t or "report" in t)
+
+_COLOR_WORDS = {
+    "black",
+    "white",
+    "gray",
+    "grey",
+    "silver",
+    "gold",
+    "red",
+    "blue",
+    "green",
+    "yellow",
+    "orange",
+    "purple",
+    "pink",
+    "brown",
+    "beige",
+    "tan",
+    "navy",
+}
+
+_BRANDS = {
+    "apple",
+    "samsung",
+    "google",
+    "sony",
+    "bose",
+    "dell",
+    "hp",
+    "lenovo",
+    "asus",
+    "nike",
+    "adidas",
+}
+
+_ITEM_KEYWORDS = {
+    "airpod": "AirPods",
+    "airpods": "AirPods",
+    "earpod": "EarPods",
+    "earpods": "EarPods",
+    "wallet": "Wallet",
+    "phone": "Phone",
+    "iphone": "iPhone",
+    "android": "Phone",
+    "backpack": "Backpack",
+    "bag": "Bag",
+    "laptop": "Laptop",
+    "keys": "Keys",
+    "key": "Keys",
+    "headphones": "Headphones",
+    "earbuds": "Earbuds",
+    "glasses": "Glasses",
+}
+
+_SLOT_ORDER = [
+    "item_name",
+    "color",
+    "brand",
+    "description",
+    "route_from",
+    "route_to",
+    "date_lost",
+    "time_lost",
+]
+
+def _extract_slots_from_conversation(conversation: List[dict]) -> dict:
+    state = {k: "" for k in _SLOT_ORDER}
+    user_texts = [str(m.get("content") or "") for m in conversation if m.get("role") == "user"]
+    combined = " \n".join(user_texts)
+    lower_all = combined.lower()
+
+    # item_name
+    mver = re.search(r"\bairpods?\s*(\d)\b", lower_all)
+    if mver:
+        state["item_name"] = f"AirPods {mver.group(1)}"
+    for k, v in _ITEM_KEYWORDS.items():
+        if not state["item_name"] and re.search(rf"\b{re.escape(k)}\b", lower_all):
+            state["item_name"] = v
+            break
+    if not state["item_name"]:
+        m = re.search(r"\blost (?:my|a|an|the)\s+([a-zA-Z0-9][^.,\n]{0,40})", lower_all)
+        if m:
+            state["item_name"] = m.group(1).strip()[:40]
+
+    # brand
+    for b in _BRANDS:
+        if re.search(rf"\b{re.escape(b)}\b", lower_all):
+            state["brand"] = b.title()
+            break
+
+    # color
+    for c in _COLOR_WORDS:
+        if re.search(rf"\b{re.escape(c)}\b", lower_all):
+            state["color"] = c
+            break
+
+    # description (grab last relevant message)
+    for t in reversed(user_texts):
+        tl = t.lower()
+        if any(w in tl for w in (
+            "logo",
+            "sticker",
+            "scratch",
+            "crack",
+            "case",
+            "engrave",
+            "initial",
+            "leather",
+            "pattern",
+            "plain",
+            "nothing",
+            "no distinguishing",
+            "no distinguishing features",
+        )):
+            state["description"] = t.strip()[:160]
+            break
+
+    # route_from / route_to
+    m = re.search(r"\bfrom\s+([a-zA-Z][a-zA-Z ]{1,40}?)\s+to\s+([a-zA-Z][a-zA-Z ]{1,40}?)\b", combined, re.IGNORECASE)
+    if m:
+        state["route_from"] = m.group(1).strip()
+        state["route_to"] = m.group(2).strip()
+    if not state["route_from"]:
+        m2 = re.search(r"\bat\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)", combined)
+        if m2:
+            state["route_from"] = m2.group(1).strip()
+    if not state["route_to"]:
+        m3 = re.search(r"\b(?:going|heading|traveling|travelling)\s+to\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)", combined)
+        if m3:
+            state["route_to"] = m3.group(1).strip()
+
+    # date/time if explicit
+    mdate = re.search(r"\b(20\d{2}-\d{2}-\d{2})\b", lower_all)
+    if mdate:
+        state["date_lost"] = mdate.group(1)
+    if not state["date_lost"]:
+        rel = _resolve_relative_date_words(lower_all)
+        if rel:
+            state["date_lost"] = rel
+    mtime = re.search(r"\b(\d{1,2}:\d{2})\b", lower_all)
+    if mtime:
+        state["time_lost"] = mtime.group(1)
+    if "noon" in lower_all:
+        state["time_lost"] = "12:00"
+
+    for k in _SLOT_ORDER:
+        state[k] = str(state.get(k) or "").strip()
+    return state
+
+def _missing_slots(state: dict) -> list[str]:
+    return [k for k in _SLOT_ORDER if not str(state.get(k) or "").strip()]
+
+def _slot_question(slot: str) -> str:
+    if slot == "item_name":
+        return "What item did you lose?"
+    if slot == "color":
+        return "What color was it?"
+    if slot == "brand":
+        return "What brand is it (if you know)?"
+    if slot == "description":
+        return "Any distinguishing details (stickers, scratches, case, contents, etc.)?"
+    if slot == "route_from":
+        return "What was your departure city or stop?"
+    if slot == "route_to":
+        return "What was your destination city or stop?"
+    if slot == "date_lost":
+        return "What date did you lose it? (YYYY-MM-DD if possible)"
+    if slot == "time_lost":
+        return "About what time did you lose it? (e.g., 2:30 PM)"
+    return "Could you tell me a bit more?"
+
+def _asked_slot_from_reply(reply: str) -> str:
+    t = (reply or "").strip().lower()
+    if not t:
+        return ""
+    if "what item" in t or "what did you lose" in t:
+        return "item_name"
+    if "what color" in t or "colour" in t:
+        return "color"
+    if "brand" in t:
+        return "brand"
+    if "distinguishing" in t or "description" in t or "details" in t or "features" in t:
+        return "description"
+    if "departure" in t:
+        return "route_from"
+    if "destination" in t:
+        return "route_to"
+    if "date" in t:
+        return "date_lost"
+    if "time" in t:
+        return "time_lost"
+    return ""
+
+def _maybe_override_reply(reply: str, conversation: List[dict]) -> str | None:
+    # Don't override backend action JSON or intake JSON.
+    rt = (reply or "").strip()
+    if rt.startswith("{") and rt.endswith("}"):
+        try:
+            obj = json.loads(rt)
+            if isinstance(obj, dict) and (obj.get("action") or obj.get("intent")):
+                return None
+            if isinstance(obj, dict) and any(k in obj for k in ("item_name", "color", "brand", "description", "route_from", "route_to", "date_lost", "time_lost")):
+                return None
+        except Exception:
+            pass
+
+    state = _extract_slots_from_conversation(conversation)
+    missing = _missing_slots(state)
+    if not missing:
+        return None
+
+    asked = _asked_slot_from_reply(reply)
+    if asked and state.get(asked):
+        return _slot_question(missing[0])
+
+    # Script restart protection.
+    if rt.lower().startswith("hello!") and any(state.get(k) for k in ("item_name", "color", "brand", "description", "route_from", "route_to")):
+        return _slot_question(missing[0])
+
+    return None
+
+
+def call_openai(conversation: List[dict]) -> str:
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + conversation
-    completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+    try:
+        state = _extract_slots_from_conversation(conversation)
+        missing = _missing_slots(state)
+        messages.append(
+            {
+                "role": "system",
+                "content": f"Current date (UTC) is {_today_iso()}. Use this to resolve words like today/yesterday.\n"
+                + "Known fields so far (do not ask again for these): "
+                + json.dumps(state)
+                + "\nMissing fields (ask ONLY for the next one): "
+                + json.dumps(missing[:1]),
+            }
+        )
+    except Exception:
+        pass
+    model = (os.environ.get("OPENAI_CHAT_MODEL") or "gpt-4o-mini").strip()
+    completion = openai_client.chat.completions.create(
+        model=model,
         messages=messages,
         temperature=0.3,
         max_tokens=512,
@@ -182,6 +513,46 @@ def is_done(reply: str) -> bool:
     t = reply.strip()
     return t.startswith("{") and t.endswith("}")
 
+async def _session_conversation_for_request(passenger_id: str, incoming: List[dict]) -> List[dict]:
+    now = _utc_now()
+    async with _session_lock:
+        s = _sessions.get(passenger_id)
+        if s is None or (now - s["updated_at"]).total_seconds() > _SESSION_TTL_SECONDS:
+            s = {"messages": [], "updated_at": now}
+            _sessions[passenger_id] = s
+
+        # If the client sent a substantial history, treat it as canonical.
+        if len(incoming) >= 6:
+            s["messages"] = incoming[-_SESSION_MAX_MESSAGES:]
+            s["updated_at"] = now
+            return list(s["messages"])
+
+        # Otherwise append only the newest user message.
+        last_user = None
+        for m in reversed(incoming):
+            if (m.get("role") or "").strip() == "user":
+                last_user = {"role": "user", "content": str(m.get("content") or "")}
+                break
+        if last_user is None:
+            return list(s["messages"])
+
+        if not s["messages"] or s["messages"][-1].get("role") != "user" or s["messages"][-1].get("content") != last_user["content"]:
+            s["messages"].append(last_user)
+        s["messages"] = s["messages"][-_SESSION_MAX_MESSAGES:]
+        s["updated_at"] = now
+        return list(s["messages"])
+
+async def _session_append_assistant(passenger_id: str, reply: str) -> None:
+    now = _utc_now()
+    async with _session_lock:
+        s = _sessions.get(passenger_id)
+        if s is None:
+            _sessions[passenger_id] = {"messages": [{"role": "assistant", "content": reply}], "updated_at": now}
+            return
+        s["messages"].append({"role": "assistant", "content": reply})
+        s["messages"] = s["messages"][-_SESSION_MAX_MESSAGES:]
+        s["updated_at"] = now
+
 
 @app.get("/health")
 def health():
@@ -190,18 +561,59 @@ def health():
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
-    if not os.environ.get("GROQ_API_KEY"):
-        raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
     try:
-        conversation = [{"role": m.role, "content": m.content} for m in req.messages]
-        reply = await asyncio.to_thread(call_groq, conversation)
+        incoming = [{"role": m.role, "content": m.content} for m in req.messages]
+        conversation = incoming
+        if req.passenger_id:
+            conversation = await _session_conversation_for_request(req.passenger_id, incoming)
+        reply = await asyncio.to_thread(call_openai, conversation)
+        try:
+            override = _maybe_override_reply(reply, conversation)
+            if override:
+                reply = override
+        except Exception:
+            pass
         dispatch = None
         if req.passenger_id:
+            await _session_append_assistant(req.passenger_id, reply)
             dispatch = await passenger_grpc.dispatch_from_chat_reply(
                 passenger_id=req.passenger_id,
                 chat_reply_text=reply,
                 forwarded_token=req.forwarded_token,
             )
+            # Fallback: if the model failed to trigger the backend check, do it automatically.
+            if dispatch is not None and dispatch.action == "none" and conversation:
+                last_user = conversation[-1].get("content", "")
+                if _looks_like_status_check(last_user):
+                    dispatch = await passenger_grpc.dispatch_from_chat_reply(
+                        passenger_id=req.passenger_id,
+                        chat_reply_text='{"action":"check_my_lost_item","data":{"status":"open","limit":10}}',
+                        forwarded_token=req.forwarded_token,
+                    )
+                    reply = "Let me check your existing report for any matching found items…"
+                elif _looks_like_list_claims(last_user):
+                    dispatch = await passenger_grpc.dispatch_from_chat_reply(
+                        passenger_id=req.passenger_id,
+                        chat_reply_text='{"action":"list_my_claims","data":{"status":"","limit":50,"offset":0}}',
+                        forwarded_token=req.forwarded_token,
+                    )
+                    reply = "Sure — here are your claims."
+                elif _looks_like_list_lost_reports(last_user):
+                    dispatch = await passenger_grpc.dispatch_from_chat_reply(
+                        passenger_id=req.passenger_id,
+                        chat_reply_text='{"action":"list_lost_reports","data":{"status":""}}',
+                        forwarded_token=req.forwarded_token,
+                    )
+                    reply = "Sure — here are your lost reports."
+                elif _looks_like_delete_lost_report(last_user):
+                    dispatch = await passenger_grpc.dispatch_from_chat_reply(
+                        passenger_id=req.passenger_id,
+                        chat_reply_text='{"action":"list_lost_reports","data":{"status":""}}',
+                        forwarded_token=req.forwarded_token,
+                    )
+                    reply = "I can help delete a report. Which one would you like to delete?"
 
         if dispatch is None:
             return ChatResponse(reply=reply, done=is_done(reply))
@@ -216,7 +628,182 @@ async def chat(req: ChatRequest):
         )
     except Exception as e:
         logger.error(f"Chat error: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        # Do not leak raw internal errors to end-users.
+        raise HTTPException(status_code=500, detail="Chat agent error")
+
+class TTSRequest(BaseModel):
+    text: str
+
+class TTSResponse(BaseModel):
+    mime: str
+    audio_base64: str
+
+def _deepgram_speak_url() -> str:
+    # Default Deepgram Aura voice model.
+    model = (os.environ.get("DEEPGRAM_TTS_MODEL") or "aura-asteria-en").strip()
+    return f"https://api.deepgram.com/v1/speak?model={model}&encoding=mp3"
+
+async def _deepgram_tts(text: str, api_key: str) -> TTSResponse:
+    t = (text or "").strip()
+    if not t:
+        raise ValueError("text is required")
+    # Keep TTS payload bounded.
+    if len(t) > 800:
+        t = t[:800]
+
+    def _do() -> TTSResponse:
+        headers = {
+            "Authorization": f"Token {api_key}",
+            "Content-Type": "application/json",
+            "Accept": "audio/mpeg",
+        }
+        r = httpx.post(_deepgram_speak_url(), headers=headers, json={"text": t}, timeout=20.0)
+        r.raise_for_status()
+        mime = (r.headers.get("content-type") or "audio/mpeg").split(";")[0].strip() or "audio/mpeg"
+        b64 = base64.b64encode(r.content).decode("ascii")
+        return TTSResponse(mime=mime, audio_base64=b64)
+
+    return await asyncio.to_thread(_do)
+
+@app.post("/tts", response_model=TTSResponse)
+async def tts(req: TTSRequest):
+    api_key = (os.environ.get("DEEPGRAM_API_KEY") or "").strip()
+    if not api_key:
+        raise HTTPException(status_code=500, detail="DEEPGRAM_API_KEY not configured")
+    try:
+        return await _deepgram_tts(req.text, api_key)
+    except Exception as e:
+        logger.error(f"TTS error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="TTS failed")
+
+
+def _deepgram_listen_url() -> str:
+    # Browser MediaRecorder chunks are typically Opus in a WebM container.
+    # Deepgram supports streaming from browsers; keep params minimal and enable interim results.
+    base = "wss://api.deepgram.com/v1/listen"
+    params = [
+        "punctuate=true",
+        "smart_format=true",
+        "interim_results=true",
+        "endpointing=150",
+        "language=en-US",
+        "model=nova-2",
+        "encoding=opus",
+        "container=webm",
+    ]
+    return f"{base}?{'&'.join(params)}"
+
+
+@app.websocket("/voice")
+async def websocket_voice(websocket: WebSocket):
+    """
+    Accepts audio chunks from the browser and streams them to Deepgram for STT.
+    Emits JSON messages back to the browser:
+      {"type":"transcript","text":"..."} (interim)
+      {"type":"final","text":"..."} (final transcript)
+      {"type":"error"} on failure
+    """
+    await websocket.accept()
+
+    api_key = (os.environ.get("DEEPGRAM_API_KEY") or "").strip()
+    if not api_key:
+        await websocket.send_text(json.dumps({"type": "error", "reason": "not_configured"}))
+        await websocket.close()
+        return
+
+    dg_ws = None
+    final_parts: list[str] = []
+    stop_requested = asyncio.Event()
+
+    try:
+        dg_ws = await websockets.connect(
+            _deepgram_listen_url(),
+            additional_headers={"Authorization": f"Token {api_key}"},
+            ping_interval=20,
+            ping_timeout=20,
+            max_size=10 * 1024 * 1024,
+        )
+
+        async def pump_audio() -> None:
+            while True:
+                msg = await websocket.receive()
+                if msg.get("type") == "websocket.disconnect":
+                    stop_requested.set()
+                    break
+                if msg.get("text") is not None:
+                    if (msg.get("text") or "").strip() == "__STOP__":
+                        stop_requested.set()
+                        break
+                    continue
+                chunk = msg.get("bytes")
+                if chunk:
+                    await dg_ws.send(chunk)
+
+        async def pump_transcripts() -> None:
+            async for raw in dg_ws:
+                try:
+                    payload = json.loads(raw)
+                except Exception:
+                    continue
+                # Deepgram sends transcript under channel.alternatives[0].transcript
+                channel = payload.get("channel") or {}
+                alts = channel.get("alternatives") or []
+                transcript = ""
+                if alts and isinstance(alts, list):
+                    transcript = (alts[0].get("transcript") or "").strip()
+                if not transcript:
+                    continue
+                is_final = bool(payload.get("is_final"))
+                speech_final = bool(payload.get("speech_final"))
+                if is_final:
+                    final_parts.append(transcript)
+                    await websocket.send_text(
+                        json.dumps({"type": "transcript", "text": " ".join(final_parts)})
+                    )
+                else:
+                    await websocket.send_text(json.dumps({"type": "transcript", "text": transcript}))
+
+                if speech_final and final_parts:
+                    utterance = " ".join(final_parts).strip()
+                    final_parts.clear()
+                    if utterance:
+                        await websocket.send_text(json.dumps({"type": "final", "text": utterance}))
+
+        t_audio = asyncio.create_task(pump_audio())
+        t_text = asyncio.create_task(pump_transcripts())
+        t_text.add_done_callback(lambda _t: stop_requested.set())
+        await stop_requested.wait()
+
+        try:
+            await dg_ws.send(json.dumps({"type": "CloseStream"}))
+        except Exception:
+            pass
+
+        try:
+            await asyncio.wait_for(t_text, timeout=2.0)
+        except Exception:
+            t_text.cancel()
+
+        # Flush any partial final transcript on stop.
+        final_text = " ".join(final_parts).strip()
+        if final_text:
+            await websocket.send_text(json.dumps({"type": "final", "text": final_text}))
+    except Exception as e:
+        logger.error(f"Voice STT error: {e}", exc_info=True)
+        try:
+            await websocket.send_text(json.dumps({"type": "error", "reason": "stt_failed"}))
+        except Exception:
+            pass
+    finally:
+        try:
+            if dg_ws is not None:
+                await dg_ws.close()
+        except Exception:
+            pass
+        try:
+            await websocket.close()
+        except Exception:
+            pass
 
 
 @app.websocket("/ws/chat")
@@ -245,11 +832,19 @@ async def websocket_chat(websocket: WebSocket):
             conversation.append({"role": "user", "content": user_text})
 
             try:
-                reply = call_groq(conversation)
+                reply = call_openai(conversation)
             except Exception as e:
-                reply = f"Error: {str(e)}"
-
-            conversation.append({"role": "assistant", "content": reply})
+                logger.error(f"Chat websocket error: {e}", exc_info=True)
+                reply = (
+                    "Sorry — something went wrong while generating my reply. "
+                    "Please try again."
+                )
+            try:
+                override = _maybe_override_reply(reply, conversation)
+                if override:
+                    reply = override
+            except Exception:
+                pass
 
             dispatch = None
             if passenger_id:
@@ -258,6 +853,15 @@ async def websocket_chat(websocket: WebSocket):
                     chat_reply_text=reply,
                     forwarded_token=forwarded_token,
                 )
+                if dispatch is not None and dispatch.action == "none" and _looks_like_status_check(user_text):
+                    dispatch = await passenger_grpc.dispatch_from_chat_reply(
+                        passenger_id=passenger_id,
+                        chat_reply_text='{"action":"check_my_lost_item","data":{"status":"open","limit":10}}',
+                        forwarded_token=forwarded_token,
+                    )
+                    reply = "Let me check your existing report for any matching found items…"
+
+            conversation.append({"role": "assistant", "content": reply})
 
             resp = {"reply": reply, "done": is_done(reply)}
             if dispatch is not None and dispatch.action != "none":

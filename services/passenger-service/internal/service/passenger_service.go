@@ -156,6 +156,40 @@ func (s *PassengerService) SearchFoundItemMatches(ctx context.Context, in inboun
 		return nil, err
 	}
 	if len(embedding) == 0 {
+		// Backfill embeddings for older lost reports created before embeddings were introduced.
+		rpt, err := s.repo.GetLostReportForPassenger(ctx, in.PassengerID, in.LostReportID)
+		if err != nil {
+			return nil, err
+		}
+		if rpt == nil {
+			return []inbound.FoundItemMatch{}, nil
+		}
+		emb, err := embedLostReportOpenAI(ctx, inbound.CreateLostReportInput{
+			PassengerID:     rpt.ReporterPassengerID,
+			ItemName:        rpt.ItemName,
+			ItemDescription: rpt.ItemDescription,
+			ItemType:        rpt.ItemType,
+			Brand:           rpt.Brand,
+			Model:           rpt.Model,
+			Color:           rpt.Color,
+			Material:        rpt.Material,
+			ItemCondition:   rpt.ItemCondition,
+			Category:        rpt.Category,
+			LocationLost:    rpt.LocationLost,
+			RouteOrStation:  rpt.RouteOrStation,
+			RouteID:         rpt.RouteID,
+			DateLost:        rpt.DateLost,
+		})
+		if err != nil {
+			// If embeddings aren't available (e.g. missing API key), degrade gracefully.
+			return []inbound.FoundItemMatch{}, nil
+		}
+		if err := s.repo.UpsertLostReportEmbedding(ctx, rpt.ID, emb); err != nil {
+			return nil, err
+		}
+		embedding = emb
+	}
+	if len(embedding) == 0 {
 		return []inbound.FoundItemMatch{}, nil
 	}
 
@@ -234,4 +268,16 @@ func (s *PassengerService) ListNotifications(ctx context.Context, in inbound.Lis
 
 func (s *PassengerService) MarkNotificationRead(ctx context.Context, in inbound.MarkNotificationReadInput) error {
 	return s.repo.MarkNotificationsRead(ctx, in.PassengerID, in.NotificationIDs)
+}
+
+func (s *PassengerService) ListMyClaims(ctx context.Context, in inbound.ListMyClaimsInput) ([]inbound.ItemClaim, error) {
+	limit := in.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	offset := in.Offset
+	if offset < 0 {
+		offset = 0
+	}
+	return s.repo.ListMyClaims(ctx, in.PassengerID, in.Status, limit, offset)
 }

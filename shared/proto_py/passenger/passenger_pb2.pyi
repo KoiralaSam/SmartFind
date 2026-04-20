@@ -224,6 +224,22 @@ class ItemClaim(_message.Message):
     updated_at: _timestamp_pb2.Timestamp
     def __init__(self, id: _Optional[str] = ..., item_id: _Optional[str] = ..., claimant_passenger_id: _Optional[str] = ..., lost_report_id: _Optional[str] = ..., message: _Optional[str] = ..., status: _Optional[str] = ..., created_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., updated_at: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
 
+class ListMyClaimsRequest(_message.Message):
+    __slots__ = ("status", "limit", "offset")
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    LIMIT_FIELD_NUMBER: _ClassVar[int]
+    OFFSET_FIELD_NUMBER: _ClassVar[int]
+    status: str
+    limit: int
+    offset: int
+    def __init__(self, status: _Optional[str] = ..., limit: _Optional[int] = ..., offset: _Optional[int] = ...) -> None: ...
+
+class ListMyClaimsResponse(_message.Message):
+    __slots__ = ("claims",)
+    CLAIMS_FIELD_NUMBER: _ClassVar[int]
+    claims: _containers.RepeatedCompositeFieldContainer[ItemClaim]
+    def __init__(self, claims: _Optional[_Iterable[_Union[ItemClaim, _Mapping]]] = ...) -> None: ...
+
 class PassengerMatchNotification(_message.Message):
     __slots__ = ("id", "passenger_id", "lost_report_id", "found_item_id", "similarity_score", "item_name", "image_urls", "primary_image_url", "created_at", "read_at")
     ID_FIELD_NUMBER: _ClassVar[int]

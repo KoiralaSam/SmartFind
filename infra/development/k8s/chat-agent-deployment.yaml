@@ -34,11 +34,11 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: ENVIRONMENT
-            - name: GROQ_API_KEY
+            - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: groq-api-key
-                  key: GROQ_API_KEY
+                  name: openai-api-key
+                  key: OPENAI_API_KEY
             - name: PASSENGER_SERVICE_ADDRESS
               valueFrom:
                 configMapKeyRef:
@@ -49,6 +49,13 @@ spec:
                 secretKeyRef:
                   name: internal-service-secret
                   key: INTERNAL_SERVICE_SECRET
+            - name: DEEPGRAM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: deepgram-secrets
+                  key: DEEPGRAM_API_KEY
+            - name: OPENAI_CHAT_MODEL
+              value: "gpt-4o-mini"
           readinessProbe:
             httpGet:
               path: /health

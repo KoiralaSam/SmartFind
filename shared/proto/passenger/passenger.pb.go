@@ -1139,6 +1139,110 @@ func (x *ItemClaim) GetUpdatedAt() *timestamppb.Timestamp {
 	return nil
 }
 
+type ListMyClaimsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Status        string                 `protobuf:"bytes,1,opt,name=status,proto3" json:"status,omitempty"`
+	Limit         int32                  `protobuf:"varint,2,opt,name=limit,proto3" json:"limit,omitempty"`
+	Offset        int32                  `protobuf:"varint,3,opt,name=offset,proto3" json:"offset,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMyClaimsRequest) Reset() {
+	*x = ListMyClaimsRequest{}
+	mi := &file_passenger_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMyClaimsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMyClaimsRequest) ProtoMessage() {}
+
+func (x *ListMyClaimsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_passenger_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMyClaimsRequest.ProtoReflect.Descriptor instead.
+func (*ListMyClaimsRequest) Descriptor() ([]byte, []int) {
+	return file_passenger_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ListMyClaimsRequest) GetStatus() string {
+	if x != nil {
+		return x.Status
+	}
+	return ""
+}
+
+func (x *ListMyClaimsRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *ListMyClaimsRequest) GetOffset() int32 {
+	if x != nil {
+		return x.Offset
+	}
+	return 0
+}
+
+type ListMyClaimsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Claims        []*ItemClaim           `protobuf:"bytes,1,rep,name=claims,proto3" json:"claims,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ListMyClaimsResponse) Reset() {
+	*x = ListMyClaimsResponse{}
+	mi := &file_passenger_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ListMyClaimsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListMyClaimsResponse) ProtoMessage() {}
+
+func (x *ListMyClaimsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_passenger_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListMyClaimsResponse.ProtoReflect.Descriptor instead.
+func (*ListMyClaimsResponse) Descriptor() ([]byte, []int) {
+	return file_passenger_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ListMyClaimsResponse) GetClaims() []*ItemClaim {
+	if x != nil {
+		return x.Claims
+	}
+	return nil
+}
+
 type PassengerMatchNotification struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
 	Id              string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
@@ -1157,7 +1261,7 @@ type PassengerMatchNotification struct {
 
 func (x *PassengerMatchNotification) Reset() {
 	*x = PassengerMatchNotification{}
-	mi := &file_passenger_proto_msgTypes[13]
+	mi := &file_passenger_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1169,7 +1273,7 @@ func (x *PassengerMatchNotification) String() string {
 func (*PassengerMatchNotification) ProtoMessage() {}
 
 func (x *PassengerMatchNotification) ProtoReflect() protoreflect.Message {
-	mi := &file_passenger_proto_msgTypes[13]
+	mi := &file_passenger_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1182,7 +1286,7 @@ func (x *PassengerMatchNotification) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PassengerMatchNotification.ProtoReflect.Descriptor instead.
 func (*PassengerMatchNotification) Descriptor() ([]byte, []int) {
-	return file_passenger_proto_rawDescGZIP(), []int{13}
+	return file_passenger_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *PassengerMatchNotification) GetId() string {
@@ -1266,7 +1370,7 @@ type ListNotificationsRequest struct {
 
 func (x *ListNotificationsRequest) Reset() {
 	*x = ListNotificationsRequest{}
-	mi := &file_passenger_proto_msgTypes[14]
+	mi := &file_passenger_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1278,7 +1382,7 @@ func (x *ListNotificationsRequest) String() string {
 func (*ListNotificationsRequest) ProtoMessage() {}
 
 func (x *ListNotificationsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_passenger_proto_msgTypes[14]
+	mi := &file_passenger_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1291,7 +1395,7 @@ func (x *ListNotificationsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListNotificationsRequest.ProtoReflect.Descriptor instead.
 func (*ListNotificationsRequest) Descriptor() ([]byte, []int) {
-	return file_passenger_proto_rawDescGZIP(), []int{14}
+	return file_passenger_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListNotificationsRequest) GetLimit() int32 {
@@ -1324,7 +1428,7 @@ type ListNotificationsResponse struct {
 
 func (x *ListNotificationsResponse) Reset() {
 	*x = ListNotificationsResponse{}
-	mi := &file_passenger_proto_msgTypes[15]
+	mi := &file_passenger_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1336,7 +1440,7 @@ func (x *ListNotificationsResponse) String() string {
 func (*ListNotificationsResponse) ProtoMessage() {}
 
 func (x *ListNotificationsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_passenger_proto_msgTypes[15]
+	mi := &file_passenger_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1349,7 +1453,7 @@ func (x *ListNotificationsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListNotificationsResponse.ProtoReflect.Descriptor instead.
 func (*ListNotificationsResponse) Descriptor() ([]byte, []int) {
-	return file_passenger_proto_rawDescGZIP(), []int{15}
+	return file_passenger_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ListNotificationsResponse) GetNotifications() []*PassengerMatchNotification {
@@ -1368,7 +1472,7 @@ type MarkNotificationReadRequest struct {
 
 func (x *MarkNotificationReadRequest) Reset() {
 	*x = MarkNotificationReadRequest{}
-	mi := &file_passenger_proto_msgTypes[16]
+	mi := &file_passenger_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1380,7 +1484,7 @@ func (x *MarkNotificationReadRequest) String() string {
 func (*MarkNotificationReadRequest) ProtoMessage() {}
 
 func (x *MarkNotificationReadRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_passenger_proto_msgTypes[16]
+	mi := &file_passenger_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1393,7 +1497,7 @@ func (x *MarkNotificationReadRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MarkNotificationReadRequest.ProtoReflect.Descriptor instead.
 func (*MarkNotificationReadRequest) Descriptor() ([]byte, []int) {
-	return file_passenger_proto_rawDescGZIP(), []int{16}
+	return file_passenger_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *MarkNotificationReadRequest) GetNotificationIds() []string {
@@ -1514,7 +1618,13 @@ const file_passenger_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\a \x01(\v2\x1a.google.protobuf.TimestampR\tcreatedAt\x129\n" +
 	"\n" +
-	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"\x9c\x03\n" +
+	"updated_at\x18\b \x01(\v2\x1a.google.protobuf.TimestampR\tupdatedAt\"[\n" +
+	"\x13ListMyClaimsRequest\x12\x16\n" +
+	"\x06status\x18\x01 \x01(\tR\x06status\x12\x14\n" +
+	"\x05limit\x18\x02 \x01(\x05R\x05limit\x12\x16\n" +
+	"\x06offset\x18\x03 \x01(\x05R\x06offset\"Q\n" +
+	"\x14ListMyClaimsResponse\x129\n" +
+	"\x06claims\x18\x01 \x03(\v2!.smartfind.passenger.v1.ItemClaimR\x06claims\"\x9c\x03\n" +
 	"\x1aPassengerMatchNotification\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fpassenger_id\x18\x02 \x01(\tR\vpassengerId\x12$\n" +
@@ -1537,14 +1647,15 @@ const file_passenger_proto_rawDesc = "" +
 	"\x19ListNotificationsResponse\x12X\n" +
 	"\rnotifications\x18\x01 \x03(\v22.smartfind.passenger.v1.PassengerMatchNotificationR\rnotifications\"H\n" +
 	"\x1bMarkNotificationReadRequest\x12)\n" +
-	"\x10notification_ids\x18\x01 \x03(\tR\x0fnotificationIds2\xe5\x06\n" +
+	"\x10notification_ids\x18\x01 \x03(\tR\x0fnotificationIds2\xd0\a\n" +
 	"\x10PassengerService\x12T\n" +
 	"\x05Login\x12$.smartfind.passenger.v1.LoginRequest\x1a%.smartfind.passenger.v1.LoginResponse\x12g\n" +
 	"\x10CreateLostReport\x12/.smartfind.passenger.v1.CreateLostReportRequest\x1a\".smartfind.passenger.v1.LostReport\x12r\n" +
 	"\x0fListLostReports\x12..smartfind.passenger.v1.ListLostReportsRequest\x1a/.smartfind.passenger.v1.ListLostReportsResponse\x12[\n" +
 	"\x10DeleteLostReport\x12/.smartfind.passenger.v1.DeleteLostReportRequest\x1a\x16.google.protobuf.Empty\x12\x87\x01\n" +
 	"\x16SearchFoundItemMatches\x125.smartfind.passenger.v1.SearchFoundItemMatchesRequest\x1a6.smartfind.passenger.v1.SearchFoundItemMatchesResponse\x12X\n" +
-	"\tFileClaim\x12(.smartfind.passenger.v1.FileClaimRequest\x1a!.smartfind.passenger.v1.ItemClaim\x12x\n" +
+	"\tFileClaim\x12(.smartfind.passenger.v1.FileClaimRequest\x1a!.smartfind.passenger.v1.ItemClaim\x12i\n" +
+	"\fListMyClaims\x12+.smartfind.passenger.v1.ListMyClaimsRequest\x1a,.smartfind.passenger.v1.ListMyClaimsResponse\x12x\n" +
 	"\x11ListNotifications\x120.smartfind.passenger.v1.ListNotificationsRequest\x1a1.smartfind.passenger.v1.ListNotificationsResponse\x12c\n" +
 	"\x14MarkNotificationRead\x123.smartfind.passenger.v1.MarkNotificationReadRequest\x1a\x16.google.protobuf.EmptyB\x1dZ\x1bsmartfind/proto;smartfindpbb\x06proto3"
 
@@ -1560,7 +1671,7 @@ func file_passenger_proto_rawDescGZIP() []byte {
 	return file_passenger_proto_rawDescData
 }
 
-var file_passenger_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
+var file_passenger_proto_msgTypes = make([]protoimpl.MessageInfo, 19)
 var file_passenger_proto_goTypes = []any{
 	(*Passenger)(nil),                      // 0: smartfind.passenger.v1.Passenger
 	(*LoginRequest)(nil),                   // 1: smartfind.passenger.v1.LoginRequest
@@ -1575,51 +1686,56 @@ var file_passenger_proto_goTypes = []any{
 	(*SearchFoundItemMatchesResponse)(nil), // 10: smartfind.passenger.v1.SearchFoundItemMatchesResponse
 	(*FileClaimRequest)(nil),               // 11: smartfind.passenger.v1.FileClaimRequest
 	(*ItemClaim)(nil),                      // 12: smartfind.passenger.v1.ItemClaim
-	(*PassengerMatchNotification)(nil),     // 13: smartfind.passenger.v1.PassengerMatchNotification
-	(*ListNotificationsRequest)(nil),       // 14: smartfind.passenger.v1.ListNotificationsRequest
-	(*ListNotificationsResponse)(nil),      // 15: smartfind.passenger.v1.ListNotificationsResponse
-	(*MarkNotificationReadRequest)(nil),    // 16: smartfind.passenger.v1.MarkNotificationReadRequest
-	(*timestamppb.Timestamp)(nil),          // 17: google.protobuf.Timestamp
-	(*emptypb.Empty)(nil),                  // 18: google.protobuf.Empty
+	(*ListMyClaimsRequest)(nil),            // 13: smartfind.passenger.v1.ListMyClaimsRequest
+	(*ListMyClaimsResponse)(nil),           // 14: smartfind.passenger.v1.ListMyClaimsResponse
+	(*PassengerMatchNotification)(nil),     // 15: smartfind.passenger.v1.PassengerMatchNotification
+	(*ListNotificationsRequest)(nil),       // 16: smartfind.passenger.v1.ListNotificationsRequest
+	(*ListNotificationsResponse)(nil),      // 17: smartfind.passenger.v1.ListNotificationsResponse
+	(*MarkNotificationReadRequest)(nil),    // 18: smartfind.passenger.v1.MarkNotificationReadRequest
+	(*timestamppb.Timestamp)(nil),          // 19: google.protobuf.Timestamp
+	(*emptypb.Empty)(nil),                  // 20: google.protobuf.Empty
 }
 var file_passenger_proto_depIdxs = []int32{
-	17, // 0: smartfind.passenger.v1.Passenger.created_at:type_name -> google.protobuf.Timestamp
-	17, // 1: smartfind.passenger.v1.Passenger.updated_at:type_name -> google.protobuf.Timestamp
+	19, // 0: smartfind.passenger.v1.Passenger.created_at:type_name -> google.protobuf.Timestamp
+	19, // 1: smartfind.passenger.v1.Passenger.updated_at:type_name -> google.protobuf.Timestamp
 	0,  // 2: smartfind.passenger.v1.LoginResponse.passenger:type_name -> smartfind.passenger.v1.Passenger
-	17, // 3: smartfind.passenger.v1.LostReport.date_lost:type_name -> google.protobuf.Timestamp
-	17, // 4: smartfind.passenger.v1.LostReport.created_at:type_name -> google.protobuf.Timestamp
-	17, // 5: smartfind.passenger.v1.LostReport.updated_at:type_name -> google.protobuf.Timestamp
-	17, // 6: smartfind.passenger.v1.CreateLostReportRequest.date_lost:type_name -> google.protobuf.Timestamp
+	19, // 3: smartfind.passenger.v1.LostReport.date_lost:type_name -> google.protobuf.Timestamp
+	19, // 4: smartfind.passenger.v1.LostReport.created_at:type_name -> google.protobuf.Timestamp
+	19, // 5: smartfind.passenger.v1.LostReport.updated_at:type_name -> google.protobuf.Timestamp
+	19, // 6: smartfind.passenger.v1.CreateLostReportRequest.date_lost:type_name -> google.protobuf.Timestamp
 	3,  // 7: smartfind.passenger.v1.ListLostReportsResponse.reports:type_name -> smartfind.passenger.v1.LostReport
-	17, // 8: smartfind.passenger.v1.FoundItemMatch.date_found:type_name -> google.protobuf.Timestamp
+	19, // 8: smartfind.passenger.v1.FoundItemMatch.date_found:type_name -> google.protobuf.Timestamp
 	8,  // 9: smartfind.passenger.v1.SearchFoundItemMatchesResponse.matches:type_name -> smartfind.passenger.v1.FoundItemMatch
-	17, // 10: smartfind.passenger.v1.ItemClaim.created_at:type_name -> google.protobuf.Timestamp
-	17, // 11: smartfind.passenger.v1.ItemClaim.updated_at:type_name -> google.protobuf.Timestamp
-	17, // 12: smartfind.passenger.v1.PassengerMatchNotification.created_at:type_name -> google.protobuf.Timestamp
-	17, // 13: smartfind.passenger.v1.PassengerMatchNotification.read_at:type_name -> google.protobuf.Timestamp
-	17, // 14: smartfind.passenger.v1.ListNotificationsRequest.created_before:type_name -> google.protobuf.Timestamp
-	13, // 15: smartfind.passenger.v1.ListNotificationsResponse.notifications:type_name -> smartfind.passenger.v1.PassengerMatchNotification
-	1,  // 16: smartfind.passenger.v1.PassengerService.Login:input_type -> smartfind.passenger.v1.LoginRequest
-	4,  // 17: smartfind.passenger.v1.PassengerService.CreateLostReport:input_type -> smartfind.passenger.v1.CreateLostReportRequest
-	5,  // 18: smartfind.passenger.v1.PassengerService.ListLostReports:input_type -> smartfind.passenger.v1.ListLostReportsRequest
-	7,  // 19: smartfind.passenger.v1.PassengerService.DeleteLostReport:input_type -> smartfind.passenger.v1.DeleteLostReportRequest
-	9,  // 20: smartfind.passenger.v1.PassengerService.SearchFoundItemMatches:input_type -> smartfind.passenger.v1.SearchFoundItemMatchesRequest
-	11, // 21: smartfind.passenger.v1.PassengerService.FileClaim:input_type -> smartfind.passenger.v1.FileClaimRequest
-	14, // 22: smartfind.passenger.v1.PassengerService.ListNotifications:input_type -> smartfind.passenger.v1.ListNotificationsRequest
-	16, // 23: smartfind.passenger.v1.PassengerService.MarkNotificationRead:input_type -> smartfind.passenger.v1.MarkNotificationReadRequest
-	2,  // 24: smartfind.passenger.v1.PassengerService.Login:output_type -> smartfind.passenger.v1.LoginResponse
-	3,  // 25: smartfind.passenger.v1.PassengerService.CreateLostReport:output_type -> smartfind.passenger.v1.LostReport
-	6,  // 26: smartfind.passenger.v1.PassengerService.ListLostReports:output_type -> smartfind.passenger.v1.ListLostReportsResponse
-	18, // 27: smartfind.passenger.v1.PassengerService.DeleteLostReport:output_type -> google.protobuf.Empty
-	10, // 28: smartfind.passenger.v1.PassengerService.SearchFoundItemMatches:output_type -> smartfind.passenger.v1.SearchFoundItemMatchesResponse
-	12, // 29: smartfind.passenger.v1.PassengerService.FileClaim:output_type -> smartfind.passenger.v1.ItemClaim
-	15, // 30: smartfind.passenger.v1.PassengerService.ListNotifications:output_type -> smartfind.passenger.v1.ListNotificationsResponse
-	18, // 31: smartfind.passenger.v1.PassengerService.MarkNotificationRead:output_type -> google.protobuf.Empty
-	24, // [24:32] is the sub-list for method output_type
-	16, // [16:24] is the sub-list for method input_type
-	16, // [16:16] is the sub-list for extension type_name
-	16, // [16:16] is the sub-list for extension extendee
-	0,  // [0:16] is the sub-list for field type_name
+	19, // 10: smartfind.passenger.v1.ItemClaim.created_at:type_name -> google.protobuf.Timestamp
+	19, // 11: smartfind.passenger.v1.ItemClaim.updated_at:type_name -> google.protobuf.Timestamp
+	12, // 12: smartfind.passenger.v1.ListMyClaimsResponse.claims:type_name -> smartfind.passenger.v1.ItemClaim
+	19, // 13: smartfind.passenger.v1.PassengerMatchNotification.created_at:type_name -> google.protobuf.Timestamp
+	19, // 14: smartfind.passenger.v1.PassengerMatchNotification.read_at:type_name -> google.protobuf.Timestamp
+	19, // 15: smartfind.passenger.v1.ListNotificationsRequest.created_before:type_name -> google.protobuf.Timestamp
+	15, // 16: smartfind.passenger.v1.ListNotificationsResponse.notifications:type_name -> smartfind.passenger.v1.PassengerMatchNotification
+	1,  // 17: smartfind.passenger.v1.PassengerService.Login:input_type -> smartfind.passenger.v1.LoginRequest
+	4,  // 18: smartfind.passenger.v1.PassengerService.CreateLostReport:input_type -> smartfind.passenger.v1.CreateLostReportRequest
+	5,  // 19: smartfind.passenger.v1.PassengerService.ListLostReports:input_type -> smartfind.passenger.v1.ListLostReportsRequest
+	7,  // 20: smartfind.passenger.v1.PassengerService.DeleteLostReport:input_type -> smartfind.passenger.v1.DeleteLostReportRequest
+	9,  // 21: smartfind.passenger.v1.PassengerService.SearchFoundItemMatches:input_type -> smartfind.passenger.v1.SearchFoundItemMatchesRequest
+	11, // 22: smartfind.passenger.v1.PassengerService.FileClaim:input_type -> smartfind.passenger.v1.FileClaimRequest
+	13, // 23: smartfind.passenger.v1.PassengerService.ListMyClaims:input_type -> smartfind.passenger.v1.ListMyClaimsRequest
+	16, // 24: smartfind.passenger.v1.PassengerService.ListNotifications:input_type -> smartfind.passenger.v1.ListNotificationsRequest
+	18, // 25: smartfind.passenger.v1.PassengerService.MarkNotificationRead:input_type -> smartfind.passenger.v1.MarkNotificationReadRequest
+	2,  // 26: smartfind.passenger.v1.PassengerService.Login:output_type -> smartfind.passenger.v1.LoginResponse
+	3,  // 27: smartfind.passenger.v1.PassengerService.CreateLostReport:output_type -> smartfind.passenger.v1.LostReport
+	6,  // 28: smartfind.passenger.v1.PassengerService.ListLostReports:output_type -> smartfind.passenger.v1.ListLostReportsResponse
+	20, // 29: smartfind.passenger.v1.PassengerService.DeleteLostReport:output_type -> google.protobuf.Empty
+	10, // 30: smartfind.passenger.v1.PassengerService.SearchFoundItemMatches:output_type -> smartfind.passenger.v1.SearchFoundItemMatchesResponse
+	12, // 31: smartfind.passenger.v1.PassengerService.FileClaim:output_type -> smartfind.passenger.v1.ItemClaim
+	14, // 32: smartfind.passenger.v1.PassengerService.ListMyClaims:output_type -> smartfind.passenger.v1.ListMyClaimsResponse
+	17, // 33: smartfind.passenger.v1.PassengerService.ListNotifications:output_type -> smartfind.passenger.v1.ListNotificationsResponse
+	20, // 34: smartfind.passenger.v1.PassengerService.MarkNotificationRead:output_type -> google.protobuf.Empty
+	26, // [26:35] is the sub-list for method output_type
+	17, // [17:26] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_passenger_proto_init() }
@@ -1633,7 +1749,7 @@ func file_passenger_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_passenger_proto_rawDesc), len(file_passenger_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   17,
+			NumMessages:   19,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
