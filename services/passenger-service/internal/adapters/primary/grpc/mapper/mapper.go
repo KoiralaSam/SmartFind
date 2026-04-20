@@ -109,6 +109,14 @@ func ItemClaimToPB(c *inbound.ItemClaim) *pb.ItemClaim {
 	}
 }
 
+func ItemClaimsToPB(c []inbound.ItemClaim) []*pb.ItemClaim {
+	out := make([]*pb.ItemClaim, len(c))
+	for i := range c {
+		out[i] = ItemClaimToPB(&c[i])
+	}
+	return out
+}
+
 func PassengerMatchNotificationToPB(n *inbound.PassengerMatchNotification) *pb.PassengerMatchNotification {
 	if n == nil {
 		return nil

@@ -1,9 +1,10 @@
 fastapi
 uvicorn[standard]
 websockets
-groq
+openai
 python-dotenv
 psycopg[binary]
 psycopg-pool
 grpcio
 grpcio-tools
+httpx

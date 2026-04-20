@@ -65,6 +65,11 @@ class PassengerServiceStub(object):
                 request_serializer=passenger__pb2.FileClaimRequest.SerializeToString,
                 response_deserializer=passenger__pb2.ItemClaim.FromString,
                 _registered_method=True)
+        self.ListMyClaims = channel.unary_unary(
+                '/smartfind.passenger.v1.PassengerService/ListMyClaims',
+                request_serializer=passenger__pb2.ListMyClaimsRequest.SerializeToString,
+                response_deserializer=passenger__pb2.ListMyClaimsResponse.FromString,
+                _registered_method=True)
         self.ListNotifications = channel.unary_unary(
                 '/smartfind.passenger.v1.PassengerService/ListNotifications',
                 request_serializer=passenger__pb2.ListNotificationsRequest.SerializeToString,
@@ -116,6 +121,12 @@ class PassengerServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def ListMyClaims(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ListNotifications(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -160,6 +171,11 @@ def add_PassengerServiceServicer_to_server(servicer, server):
                     servicer.FileClaim,
                     request_deserializer=passenger__pb2.FileClaimRequest.FromString,
                     response_serializer=passenger__pb2.ItemClaim.SerializeToString,
+            ),
+            'ListMyClaims': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListMyClaims,
+                    request_deserializer=passenger__pb2.ListMyClaimsRequest.FromString,
+                    response_serializer=passenger__pb2.ListMyClaimsResponse.SerializeToString,
             ),
             'ListNotifications': grpc.unary_unary_rpc_method_handler(
                     servicer.ListNotifications,
@@ -334,6 +350,33 @@ class PassengerService(object):
             '/smartfind.passenger.v1.PassengerService/FileClaim',
             passenger__pb2.FileClaimRequest.SerializeToString,
             passenger__pb2.ItemClaim.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListMyClaims(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/smartfind.passenger.v1.PassengerService/ListMyClaims',
+            passenger__pb2.ListMyClaimsRequest.SerializeToString,
+            passenger__pb2.ListMyClaimsResponse.FromString,
             options,
             channel_credentials,
             insecure,

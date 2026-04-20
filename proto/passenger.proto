@@ -14,6 +14,7 @@ service PassengerService {
   rpc DeleteLostReport(DeleteLostReportRequest) returns (google.protobuf.Empty);
   rpc SearchFoundItemMatches(SearchFoundItemMatchesRequest) returns (SearchFoundItemMatchesResponse);
   rpc FileClaim(FileClaimRequest) returns (ItemClaim);
+  rpc ListMyClaims(ListMyClaimsRequest) returns (ListMyClaimsResponse);
   rpc ListNotifications(ListNotificationsRequest) returns (ListNotificationsResponse);
   rpc MarkNotificationRead(MarkNotificationReadRequest) returns (google.protobuf.Empty);
 }
@@ -136,6 +137,16 @@ message ItemClaim {
   string status = 6;
   google.protobuf.Timestamp created_at = 7;
   google.protobuf.Timestamp updated_at = 8;
+}
+
+message ListMyClaimsRequest {
+  string status = 1;
+  int32 limit = 2;
+  int32 offset = 3;
+}
+
+message ListMyClaimsResponse {
+  repeated ItemClaim claims = 1;
 }
 
 message PassengerMatchNotification {
