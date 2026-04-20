@@ -229,8 +229,8 @@ func runOnceWithPool(ctx context.Context, pool *pgxpool.Pool, staffClient staffp
 			continue
 		}
 
-		if err := sendSendgridEmail(ctx, lr.PassengerEmail, lr.LostReportID, lr.LostItemName, inserted, emailMaxItems); err != nil {
-			log.Printf("sendgrid email failed passenger_id=%s lost_report_id=%s: %v", lr.PassengerID, lr.LostReportID, err)
+		if err := sendMatchEmail(ctx, lr.PassengerEmail, lr.LostReportID, lr.LostItemName, inserted, emailMaxItems); err != nil {
+			log.Printf("match email failed passenger_id=%s lost_report_id=%s: %v", lr.PassengerID, lr.LostReportID, err)
 			continue
 		}
 		_ = updateLastEmailed(ctx, pool, lr.LostReportID, now)
@@ -298,12 +298,38 @@ func minInt(a, b int) int {
 	return b
 }
 
-func sendSendgridEmail(ctx context.Context, toEmail string, lostReportID string, lostItemName string, matches []insertedMatch, maxItems int) error {
-	apiKey := strings.TrimSpace(os.Getenv("SENDGRID_API_KEY"))
-	fromEmail := strings.TrimSpace(os.Getenv("SENDGRID_FROM_EMAIL"))
+// sendMatchEmail delivers the match digest via Mailtrap's Send API
+// (https://send.api.mailtrap.io/api/send). The transport was migrated off
+// SendGrid; the call site falls back gracefully when the Mailtrap token is
+// unset so the cron still inserts notifications into the database and simply
+// skips the email send.
+//
+// Required env:
+//
+//	MAILTRAP_API_TOKEN      - API token with "Send Email" scope
+//	MAILTRAP_FROM_EMAIL     - verified sender address for your Mailtrap domain
+//
+// Optional env:
+//
+//	MAILTRAP_FROM_NAME      - human-readable sender name (defaults to "SmartFind")
+//	MAILTRAP_API_URL        - override the endpoint (e.g. sandbox inbox URL)
+//	PUBLIC_APP_BASE_URL     - base URL used to build deep links in the email
+func sendMatchEmail(ctx context.Context, toEmail string, lostReportID string, lostItemName string, matches []insertedMatch, maxItems int) error {
+	apiToken := strings.TrimSpace(os.Getenv("MAILTRAP_API_TOKEN"))
+	fromEmail := strings.TrimSpace(os.Getenv("MAILTRAP_FROM_EMAIL"))
+	fromName := strings.TrimSpace(os.Getenv("MAILTRAP_FROM_NAME"))
+	apiURL := strings.TrimSpace(os.Getenv("MAILTRAP_API_URL"))
 	publicBase := strings.TrimSpace(os.Getenv("PUBLIC_APP_BASE_URL"))
-	if apiKey == "" || strings.EqualFold(apiKey, "REPLACE_ME") || fromEmail == "" || strings.EqualFold(fromEmail, "REPLACE_ME") {
-		return errors.New("SENDGRID_API_KEY and SENDGRID_FROM_EMAIL are required")
+
+	if fromName == "" {
+		fromName = "SmartFind"
+	}
+	if apiURL == "" {
+		apiURL = "https://send.api.mailtrap.io/api/send"
+	}
+	if apiToken == "" || strings.EqualFold(apiToken, "REPLACE_ME") ||
+		fromEmail == "" || strings.EqualFold(fromEmail, "REPLACE_ME") {
+		return errors.New("MAILTRAP_API_TOKEN and MAILTRAP_FROM_EMAIL are required")
 	}
 	if strings.TrimSpace(toEmail) == "" {
 		return errors.New("to email is empty")
@@ -317,7 +343,7 @@ func sendSendgridEmail(ctx context.Context, toEmail string, lostReportID string,
 	}
 
 	link := strings.TrimRight(publicBase, "/") + "/passenger/chat"
-	if strings.TrimSpace(publicBase) == "" {
+	if publicBase == "" {
 		link = "/passenger/chat"
 	}
 
@@ -330,26 +356,29 @@ func sendSendgridEmail(ctx context.Context, toEmail string, lostReportID string,
 	html := buildHTMLEmail(lostReportID, link, matches)
 
 	payload := map[string]any{
-		"personalizations": []any{
-			map[string]any{
-				"to":      []any{map[string]any{"email": toEmail}},
-				"subject": subject,
-			},
+		"from": map[string]any{
+			"email": fromEmail,
+			"name":  fromName,
 		},
-		"from": map[string]any{"email": fromEmail},
-		"content": []any{
-			map[string]any{"type": "text/plain", "value": text},
-			map[string]any{"type": "text/html", "value": html},
+		"to":       []any{map[string]any{"email": toEmail}},
+		"subject":  subject,
+		"text":     text,
+		"html":     html,
+		"category": "smartfind-match-notification",
+		"custom_variables": map[string]any{
+			"lost_report_id": lostReportID,
 		},
 	}
 
 	body, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.sendgrid.com/v3/mail/send", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Authorization", "Bearer "+apiToken)
+	req.Header.Set("Api-Token", apiToken)
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
 
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -357,7 +386,9 @@ func sendSendgridEmail(ctx context.Context, toEmail string, lostReportID string,
 	}
 	defer res.Body.Close()
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
-		return fmt.Errorf("sendgrid status %d", res.StatusCode)
+		buf := make([]byte, 512)
+		n, _ := res.Body.Read(buf)
+		return fmt.Errorf("mailtrap status %d: %s", res.StatusCode, strings.TrimSpace(string(buf[:n])))
 	}
 	return nil
 }

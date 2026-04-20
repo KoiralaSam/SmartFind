@@ -107,6 +107,37 @@ export async function passengerListClaims(params) {
   return requestJSON(`/passenger/claims${suffix}`, { method: "GET" });
 }
 
+export async function passengerFileClaim({ foundItemId, lostReportId, message }) {
+  return requestJSON(`/passenger/claims`, {
+    method: "POST",
+    body: JSON.stringify({
+      found_item_id: foundItemId,
+      lost_report_id: lostReportId,
+      message: message || "",
+    }),
+  });
+}
+
+export async function passengerListNotifications({ limit, unreadOnly, createdBefore } = {}) {
+  const q = new URLSearchParams();
+  if (limit != null) q.set("limit", String(limit));
+  if (unreadOnly) q.set("unread_only", "1");
+  if (createdBefore) q.set("created_before", createdBefore);
+  const suffix = q.toString() ? `?${q.toString()}` : "";
+  return requestJSON(`/passenger/notifications${suffix}`, { method: "GET" });
+}
+
+export async function passengerMarkNotificationsRead(notificationIds) {
+  const ids = Array.isArray(notificationIds)
+    ? notificationIds.filter(Boolean)
+    : [];
+  if (ids.length === 0) return { status: "ok" };
+  return requestJSON(`/passenger/notifications/read`, {
+    method: "POST",
+    body: JSON.stringify({ notification_ids: ids }),
+  });
+}
+
 export async function staffListFoundItems(params) {
   const q = new URLSearchParams();
   if (params?.status) q.set("status", params.status);

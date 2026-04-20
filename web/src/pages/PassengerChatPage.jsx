@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, CheckCircle2, ImageIcon, Loader2, Mic, MicOff, Send, Sparkles } from "lucide-react";
 import { AccountAvatar } from "../components/AccountAvatar";
+import { passengerFileClaim } from "../api/gateway";
 import { useAuth } from "../context/useAuth";
 
 const CHAT_BASE_URL = "/api";
@@ -682,28 +683,15 @@ export default function PassengerChatPage() {
     );
 
     try {
-      const response = await fetch(`${CHAT_BASE_URL}/claim`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          passenger_id: user?.id || "",
-          found_item_id: match.found_item_id,
-          lost_report_id: lostReportId,
-          message: "I believe this is my item.",
-          forwarded_token: user?.sessionToken || null,
-        }),
+      // Canonical path: the api-gateway's POST /passenger/claims wraps the
+      // passenger-service FileClaim gRPC and resolves the passenger from the
+      // forwarded session token. The notifications drawer uses the same helper,
+      // so auth, validation, and duplicate-claim errors go through one funnel.
+      const claim = await passengerFileClaim({
+        foundItemId: match.found_item_id,
+        lostReportId,
+        message: "I believe this is my item.",
       });
-      if (!response.ok) {
-        const errBody = await response.json().catch(() => null);
-        const detail = errBody?.detail || response.statusText;
-        throw new Error(detail);
-      }
-      const data = await response.json();
-
-      const succeeded = Boolean(data?.ok);
-      const replyContent = succeeded
-        ? formatBackendResult("file_claim", data.data || {})
-        : "I couldn’t file your claim right now. Please try again in a moment.";
 
       setMessages((prev) => [
         ...prev.map((m) =>
@@ -713,14 +701,16 @@ export default function PassengerChatPage() {
                 matchCards: {
                   ...m.matchCards,
                   claimingId: "",
-                  claimedId: succeeded
-                    ? match.found_item_id
-                    : m.matchCards?.claimedId || "",
+                  claimedId: match.found_item_id,
                 },
               }
             : m,
         ),
-        { id: `a-${Date.now()}`, role: "assistant", content: replyContent },
+        {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: formatBackendResult("file_claim", claim || {}),
+        },
       ]);
     } catch (error) {
       setMessages((prev) =>

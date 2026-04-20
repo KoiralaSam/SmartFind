@@ -44,6 +44,7 @@ func main() {
 	mux.HandleFunc("POST /passenger/notifications/read", corsMiddleware(passengerMarkNotificationsReadHandler))
 	mux.HandleFunc("GET /passenger/lost-reports", corsMiddleware(passengerListLostReportsHandler))
 	mux.HandleFunc("GET /passenger/claims", corsMiddleware(passengerListMyClaimsHandler))
+	mux.HandleFunc("POST /passenger/claims", corsMiddleware(passengerFileClaimHandler))
 	mux.HandleFunc("POST /staff/login", corsMiddleware(staffLoginHandler))
 	mux.HandleFunc("POST /staff/logout", corsMiddleware(staffLogoutHandler))
 	mux.HandleFunc("POST /staff", corsMiddleware(staffCreateStaffHandler))
