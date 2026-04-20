@@ -54,8 +54,8 @@ spec:
                       key: PUBLIC_APP_BASE_URL
                 - name: MATCH_MIN_SIMILARITY
                   valueFrom:
-                    secretKeyRef:
-                      name: sendgrid-secrets
+                    configMapKeyRef:
+                      name: app-config
                       key: MATCH_MIN_SIMILARITY
                 - name: MATCH_MAX_NOTIFS_PER_REPORT_PER_DAY
                   valueFrom:

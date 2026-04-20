@@ -81,7 +81,7 @@ func runOnce(ctx context.Context, pool *pgxpool.Pool, staffClient staffpb.StaffS
 }
 
 func runOnceWithPool(ctx context.Context, pool *pgxpool.Pool, staffClient staffpb.StaffServiceClient) error {
-	minSim := env.GetFloat("MATCH_MIN_SIMILARITY", 0.82)
+	minSim := env.GetFloat("MATCH_MIN_SIMILARITY", 0.65)
 	if minSim < 0 {
 		minSim = 0
 	}

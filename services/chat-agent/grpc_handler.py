@@ -344,21 +344,39 @@ class PassengerGrpcHandler:
         status: str = "open",
         limit: int = 10,
         forwarded_token: Optional[str] = None,
+        auto_default: bool = True,
     ) -> Dict[str, Any]:
+        """Resolve the "check my item" flow.
+
+        When ``lost_report_id`` is provided, use it directly.
+        Otherwise list the passenger's reports and:
+          - 0 reports  -> return empty result.
+          - 1 report   -> use it.
+          - >1 reports -> if ``auto_default`` is True, default to most recent
+            (passenger-service orders by created_at DESC). If False, return
+            ``needs_choice=True`` with the list so the caller can ask the
+            passenger to pick one.
+        """
         resp = await self.list_lost_reports(
             passenger_id=passenger_id, status=status, forwarded_token=forwarded_token
         )
         resp_dict = MessageToDict(resp, preserving_proto_field_name=True)
         reports = resp_dict.get("reports") or []
+
         chosen = None
+        needs_choice = False
         if lost_report_id:
             for r in reports:
                 if str(r.get("id") or "").strip() == lost_report_id:
                     chosen = r
                     break
-        if chosen is None and reports:
-            # Use the most recent report (passenger-service orders by created_at DESC).
+        elif len(reports) == 1:
             chosen = reports[0]
+        elif len(reports) > 1:
+            if auto_default:
+                chosen = reports[0]
+            else:
+                needs_choice = True
 
         matches: list[Dict[str, Any]] = []
         chosen_id = (chosen or {}).get("id") or ""
@@ -374,7 +392,13 @@ class PassengerGrpcHandler:
             except Exception:
                 matches = []
 
-        return {"report": chosen or {}, "lost_report_id": chosen_id, "matches": matches, "reports": reports}
+        return {
+            "report": chosen or {},
+            "lost_report_id": chosen_id,
+            "matches": matches,
+            "reports": reports,
+            "needs_choice": needs_choice,
+        }
 
     async def file_claim(
         self,
@@ -436,12 +460,16 @@ class PassengerGrpcHandler:
                 status = (data.get("status") or "open").strip() or "open"
                 limit = int(data.get("limit") or 10)
                 lost_report_id = (data.get("lost_report_id") or "").strip()
+                # Default value preserves prior behavior; chat-agent may pass False to force disambiguation.
+                auto_default_raw = data.get("auto_default")
+                auto_default = True if auto_default_raw is None else bool(auto_default_raw)
                 out = await self.check_my_lost_item(
                     passenger_id=passenger_id,
                     lost_report_id=lost_report_id,
                     status=status,
                     limit=limit,
                     forwarded_token=forwarded_token,
+                    auto_default=auto_default,
                 )
                 return ChatDispatchResult(action=action, ok=True, data=out)
 

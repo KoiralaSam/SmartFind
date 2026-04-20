@@ -59,8 +59,8 @@ spec:
                   key: INTERNAL_SERVICE_SECRET
             - name: MATCH_MIN_SIMILARITY
               valueFrom:
-                secretKeyRef:
-                  name: sendgrid-secrets
+                configMapKeyRef:
+                  name: app-config
                   key: MATCH_MIN_SIMILARITY
             - name: OPENAI_API_KEY
               valueFrom:

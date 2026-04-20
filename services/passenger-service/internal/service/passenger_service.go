@@ -130,6 +130,73 @@ func (s *PassengerService) CreateLostReport(ctx context.Context, in inbound.Crea
 	return created, nil
 }
 
+// UpdateLostReport applies the non-nil fields of `in` to the passenger's
+// lost report. When any of the twelve slots that feed the match embedding
+// change, the OpenAI embedding is recomputed and upserted so subsequent
+// similarity searches reflect the edit. If the embedding call fails the
+// database edit is kept but the error is swallowed (the old vector stays
+// in place) so an outage of the embeddings provider does not block edits.
+func (s *PassengerService) UpdateLostReport(ctx context.Context, in inbound.UpdateLostReportInput) (*inbound.LostReport, error) {
+	before, err := s.repo.GetLostReportForPassenger(ctx, in.PassengerID, in.LostReportID)
+	if err != nil {
+		return nil, err
+	}
+	if before == nil {
+		return nil, outbound.ErrLostReportNotFound
+	}
+
+	updated, err := s.repo.UpdateLostReport(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+
+	if lostReportEmbeddingChanged(before, updated) {
+		emb, embErr := embedLostReportOpenAI(ctx, inbound.CreateLostReportInput{
+			PassengerID:     updated.ReporterPassengerID,
+			ItemName:        updated.ItemName,
+			ItemDescription: updated.ItemDescription,
+			ItemType:        updated.ItemType,
+			Brand:           updated.Brand,
+			Model:           updated.Model,
+			Color:           updated.Color,
+			Material:        updated.Material,
+			ItemCondition:   updated.ItemCondition,
+			Category:        updated.Category,
+			LocationLost:    updated.LocationLost,
+			RouteOrStation:  updated.RouteOrStation,
+			RouteID:         updated.RouteID,
+			DateLost:        updated.DateLost,
+		})
+		if embErr == nil {
+			_ = s.repo.UpsertLostReportEmbedding(ctx, updated.ID, emb)
+		}
+	}
+
+	return updated, nil
+}
+
+// lostReportEmbeddingChanged returns true when any of the twelve slots that
+// buildLostReportEmbeddingText reads have changed between the pre- and
+// post-update rows. Fields that do not feed the embedding (status,
+// timestamps) are ignored.
+func lostReportEmbeddingChanged(a, b *inbound.LostReport) bool {
+	if a == nil || b == nil {
+		return true
+	}
+	return a.ItemName != b.ItemName ||
+		a.ItemDescription != b.ItemDescription ||
+		a.ItemType != b.ItemType ||
+		a.Brand != b.Brand ||
+		a.Model != b.Model ||
+		a.Color != b.Color ||
+		a.Material != b.Material ||
+		a.ItemCondition != b.ItemCondition ||
+		a.Category != b.Category ||
+		a.LocationLost != b.LocationLost ||
+		a.RouteOrStation != b.RouteOrStation ||
+		a.RouteID != b.RouteID
+}
+
 func (s *PassengerService) ListLostReports(ctx context.Context, in inbound.ListLostReportsInput) ([]inbound.LostReport, error) {
 	reports, err := s.repo.ListLostReports(ctx, in.PassengerID, in.Status)
 	if err != nil {
@@ -193,7 +260,7 @@ func (s *PassengerService) SearchFoundItemMatches(ctx context.Context, in inboun
 		return []inbound.FoundItemMatch{}, nil
 	}
 
-	minSim := env.GetFloat("MATCH_MIN_SIMILARITY", 0.82)
+	minSim := env.GetFloat("MATCH_MIN_SIMILARITY", 0.65)
 	if minSim < 0 {
 		minSim = 0
 	}

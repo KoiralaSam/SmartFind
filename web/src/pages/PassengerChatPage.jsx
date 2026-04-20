@@ -686,23 +686,29 @@ export default function PassengerChatPage() {
       ),
     );
 
-    const claimPrompt = `File a claim for my selected match. Respond with JSON only using action "file_claim". Use found_item_id "${match.found_item_id}", lost_report_id "${lostReportId}", and set a concise message saying this is my selected item.`;
-
     try {
-      const data = await requestAssistantReply(
-        buildConversationWithNextUserMessage(claimPrompt),
-      );
-
-      let replyContent = data.reply;
-      if (data.action && data.action !== "none") {
-        if (data.grpc_ok) {
-          replyContent = formatBackendResult(data.action, data.grpc_data);
-        } else {
-          console.warn("Backend action failed:", data.action, data.grpc_error);
-          replyContent =
-            "I couldn’t file your claim right now. Please try again in a moment.";
-        }
+      const response = await fetch(`${CHAT_BASE_URL}/claim`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          passenger_id: user?.id || "",
+          found_item_id: match.found_item_id,
+          lost_report_id: lostReportId,
+          message: "I believe this is my item.",
+          forwarded_token: user?.sessionToken || null,
+        }),
+      });
+      if (!response.ok) {
+        const errBody = await response.json().catch(() => null);
+        const detail = errBody?.detail || response.statusText;
+        throw new Error(detail);
       }
+      const data = await response.json();
+
+      const succeeded = Boolean(data?.ok);
+      const replyContent = succeeded
+        ? formatBackendResult("file_claim", data.data || {})
+        : "I couldn’t file your claim right now. Please try again in a moment.";
 
       setMessages((prev) => [
         ...prev.map((m) =>
@@ -712,10 +718,9 @@ export default function PassengerChatPage() {
                 matchCards: {
                   ...m.matchCards,
                   claimingId: "",
-                  claimedId:
-                    data.action === "file_claim" && data.grpc_ok
-                      ? match.found_item_id
-                      : m.matchCards?.claimedId || "",
+                  claimedId: succeeded
+                    ? match.found_item_id
+                    : m.matchCards?.claimedId || "",
                 },
               }
             : m,
