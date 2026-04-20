@@ -270,7 +270,7 @@ func (s *StaffService) DeleteRoute(ctx context.Context, in inbound.DeleteRouteIn
 	if strings.TrimSpace(in.StaffID) == "" || strings.TrimSpace(in.RouteID) == "" {
 		return errors.New("staff_id and route_id are required")
 	}
-	return s.repo.DeleteRouteIfOwner(ctx, in.StaffID, in.RouteID)
+	return s.repo.DeleteRoute(ctx, in.RouteID)
 }
 
 func (s *StaffService) ListRoutes(ctx context.Context, in inbound.ListRoutesInput) ([]inbound.Route, error) {

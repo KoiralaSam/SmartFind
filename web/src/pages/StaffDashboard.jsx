@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate, NavLink, useNavigate, useParams } from "react-router-dom";
 import {
   BarChart3,
   Camera,
@@ -7,6 +7,7 @@ import {
   Clock,
   ImagePlus,
   LogOut,
+  MapPin,
   Package,
   Plus,
   Train,
@@ -18,11 +19,13 @@ import { useAuth } from "../context/useAuth";
 import {
   staffCreateFoundItem,
   staffListFoundItems,
+  staffListTransitRoutes,
   staffUpdateFoundItemStatus,
   mediaInitUploads,
   mediaDeleteUpload,
 } from "../api/gateway";
 import AnalyticsPanel from "./AnalyticsPanel";
+import StaffTransitRoutesPage from "./StaffTransitRoutesPage";
 
 const CATEGORIES = [
   "Bags & Luggage",
@@ -102,32 +105,46 @@ function mapFoundItemDTO(dto) {
   };
 }
 
-// ─── Tab Button ──────────────────────────────────────────────
-function TabButton({ active, icon: Icon, label, count, onClick }) {
+const STAFF_SECTIONS = new Set([
+  "dashboard",
+  "upload",
+  "in-progress",
+  "claimed",
+  "analytics",
+  "routes",
+]);
+
+// ─── Tab link (URL-backed) ───────────────────────────────────
+function StaffTabLink({ to, icon: Icon, label, count }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition ${
-        active
-          ? "bg-foreground text-background shadow-sm"
-          : "text-muted-foreground hover:bg-muted hover:text-foreground"
-      }`}
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        `flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+          isActive
+            ? "bg-foreground text-background shadow-sm"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground"
+        }`
+      }
     >
-      <Icon className="h-4 w-4" />
-      <span className="hidden sm:inline">{label}</span>
-      {count > 0 && (
-        <span
-          className={`ml-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-xs font-semibold ${
-            active
-              ? "bg-background/20 text-background"
-              : "bg-muted-foreground/15 text-muted-foreground"
-          }`}
-        >
-          {count}
-        </span>
+      {({ isActive }) => (
+        <>
+          <Icon className="h-4 w-4" />
+          <span className="hidden sm:inline">{label}</span>
+          {count > 0 && (
+            <span
+              className={`ml-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full px-1.5 text-xs font-semibold ${
+                isActive
+                  ? "bg-background/20 text-background"
+                  : "bg-muted-foreground/15 text-muted-foreground"
+              }`}
+            >
+              {count}
+            </span>
+          )}
+        </>
       )}
-    </button>
+    </NavLink>
   );
 }
 
@@ -225,7 +242,10 @@ function ItemCard({ item, onClaim }) {
 // ─── Main Dashboard ──────────────────────────────────────────
 export default function StaffDashboard() {
   const { user, logout } = useAuth();
-  const [tab, setTab] = useState("dashboard");
+  const navigate = useNavigate();
+  const { section } = useParams();
+  const tab =
+    section && STAFF_SECTIONS.has(section) ? section : null;
   const [items, setItems] = useState([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsError, setItemsError] = useState("");
@@ -233,7 +253,8 @@ export default function StaffDashboard() {
   // Upload form state
   const [itemName, setItemName] = useState("");
   const [locationFound, setLocationFound] = useState("");
-  const [routeOrStation, setRouteOrStation] = useState("");
+  const [selectedRouteId, setSelectedRouteId] = useState("");
+  const [transitRoutes, setTransitRoutes] = useState([]);
   const [dateFound, setDateFound] = useState("");
   // photos: array of { id, url (data-URI for preview), data (base64 for API) }
   const [photos, setPhotos] = useState([]);
@@ -335,6 +356,24 @@ export default function StaffDashboard() {
   useEffect(() => {
     refreshItems();
   }, [refreshItems]);
+
+  useEffect(() => {
+    if (!user?.id || tab !== "upload") return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const payload = await staffListTransitRoutes({ limit: 500, offset: 0 });
+        if (!cancelled) {
+          setTransitRoutes(Array.isArray(payload?.routes) ? payload.routes : []);
+        }
+      } catch {
+        if (!cancelled) setTransitRoutes([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, tab]);
 
   const unclaimed = items.filter((i) => i.status === "unclaimed");
   const claimed = items.filter((i) => i.status === "claimed");
@@ -615,10 +654,22 @@ export default function StaffDashboard() {
         setUploadError("No uploaded image keys found. Please re-upload photos.");
         return;
       }
+      if (transitRoutes.length === 0) {
+        setUploadError("Add at least one transit route under the Routes tab before uploading.");
+        return;
+      }
+      if (!String(selectedRouteId || "").trim()) {
+        setUploadError("Select a transit route.");
+        return;
+      }
 
       const dateISO = dateFound
         ? new Date(`${dateFound}T00:00:00Z`).toISOString()
         : undefined;
+
+      const routeMeta = transitRoutes.find((r) => r.id === selectedRouteId);
+      const routeOrStationVal = String(routeMeta?.route_name || "").trim();
+      const routeIdVal = String(selectedRouteId || "").trim();
 
       try {
         const created = await staffCreateFoundItem({
@@ -636,8 +687,8 @@ export default function StaffDashboard() {
           item_condition: extractedDetails?.item_condition || "",
           category: editableCategory || extractedDetails?.category || "",
           location_found: locationFound.trim(),
-          route_or_station: routeOrStation.trim(),
-          route_id: "",
+          route_or_station: routeOrStationVal,
+          route_id: routeIdVal,
           date_found: dateISO,
           image_keys: keys,
           primary_image_key: keys[0] || "",
@@ -652,7 +703,8 @@ export default function StaffDashboard() {
             "",
           category: editableCategory || extractedDetails?.category || "",
           locationFound: locationFound.trim(),
-          routeOrStation: routeOrStation.trim(),
+          routeOrStation: routeOrStationVal,
+          routeId: routeIdVal,
           dateFound,
           status: "unclaimed",
           image: photos[0]?.url || null,
@@ -669,7 +721,7 @@ export default function StaffDashboard() {
 
       setItemName("");
       setLocationFound("");
-      setRouteOrStation("");
+      setSelectedRouteId("");
       setDateFound("");
       setPhotos([]);
       setExtractedDetails(null);
@@ -682,7 +734,18 @@ export default function StaffDashboard() {
       setUploadSuccess(true);
       setTimeout(() => setUploadSuccess(false), 3000);
     },
-    [itemName, locationFound, routeOrStation, dateFound, photos, user, extractedDetails, editableDescription, editableCategory],
+    [
+      itemName,
+      locationFound,
+      selectedRouteId,
+      transitRoutes,
+      dateFound,
+      photos,
+      user,
+      extractedDetails,
+      editableDescription,
+      editableCategory,
+    ],
   );
 
   const handleClaim = useCallback(
@@ -704,6 +767,10 @@ export default function StaffDashboard() {
     },
     [user?.id],
   );
+
+  if (!tab) {
+    return <Navigate to="/staff/dashboard" replace />;
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-muted/40 to-background">
@@ -740,41 +807,22 @@ export default function StaffDashboard() {
       {/* ─── Tab Navigation ─────────────────────────────────── */}
       <nav className="border-b border-border/60 bg-background/60 backdrop-blur-sm">
         <div className="mx-auto flex max-w-5xl gap-1 overflow-x-auto px-4 py-2">
-          <TabButton
-            active={tab === "dashboard"}
-            icon={Package}
-            label="Dashboard"
-            count={0}
-            onClick={() => setTab("dashboard")}
-          />
-          <TabButton
-            active={tab === "upload"}
-            icon={Upload}
-            label="Upload Item"
-            count={0}
-            onClick={() => setTab("upload")}
-          />
-          <TabButton
-            active={tab === "in-progress"}
+          <StaffTabLink to="/staff/dashboard" icon={Package} label="Dashboard" count={0} />
+          <StaffTabLink to="/staff/upload" icon={Upload} label="Upload Item" count={0} />
+          <StaffTabLink
+            to="/staff/in-progress"
             icon={Clock}
             label="In Progress"
             count={unclaimed.length}
-            onClick={() => setTab("in-progress")}
           />
-          <TabButton
-            active={tab === "claimed"}
+          <StaffTabLink
+            to="/staff/claimed"
             icon={CheckCircle2}
             label="Claimed"
             count={claimed.length}
-            onClick={() => setTab("claimed")}
           />
-          <TabButton
-            active={tab === "analytics"}
-            icon={BarChart3}
-            label="Analytics"
-            count={0}
-            onClick={() => setTab("analytics")}
-          />
+          <StaffTabLink to="/staff/analytics" icon={BarChart3} label="Analytics" count={0} />
+          <StaffTabLink to="/staff/routes" icon={MapPin} label="Routes" count={0} />
         </div>
       </nav>
 
@@ -844,7 +892,7 @@ export default function StaffDashboard() {
                   </p>
                   <button
                     type="button"
-                    onClick={() => setTab("upload")}
+                    onClick={() => navigate("/staff/upload")}
                     className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-foreground px-4 py-2 text-sm font-medium text-background transition hover:opacity-90"
                   >
                     <Plus className="h-4 w-4" />
@@ -865,7 +913,7 @@ export default function StaffDashboard() {
                       Showing 5 of {items.length} items.{" "}
                       <button
                         type="button"
-                        onClick={() => setTab("in-progress")}
+                        onClick={() => navigate("/staff/in-progress")}
                         className="font-medium text-foreground underline underline-offset-2"
                       >
                         View all
@@ -933,16 +981,37 @@ export default function StaffDashboard() {
                 </div>
                 <div className="space-y-2">
                   <label htmlFor="item-route" className="text-sm font-medium leading-none">
-                    Route / Station
+                    Route / Station <span className="text-destructive">*</span>
                   </label>
-                  <input
+                  <select
                     id="item-route"
-                    type="text"
-                    value={routeOrStation}
-                    onChange={(e) => setRouteOrStation(e.target.value)}
+                    required
+                    value={selectedRouteId}
+                    onChange={(e) => setSelectedRouteId(e.target.value)}
                     className={field}
-                    placeholder="e.g. Route 42"
-                  />
+                  >
+                    <option value="" disabled>
+                      Select a transit route
+                    </option>
+                    {transitRoutes.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.route_name}
+                      </option>
+                    ))}
+                  </select>
+                  {transitRoutes.length === 0 ? (
+                    <p className="text-xs text-amber-800 dark:text-amber-200/90">
+                      At least one route is required to upload. Add routes under the{" "}
+                      <button
+                        type="button"
+                        onClick={() => navigate("/staff/routes")}
+                        className="font-medium text-foreground underline underline-offset-2"
+                      >
+                        Routes
+                      </button>{" "}
+                      tab.
+                    </p>
+                  ) : null}
                 </div>
               </div>
 
@@ -1214,7 +1283,9 @@ export default function StaffDashboard() {
                 disabled={
                   photos.length === 0 ||
                   extracting ||
-                  photos.some((p) => p.uploading || !p.s3Key || p.uploadError)
+                  photos.some((p) => p.uploading || !p.s3Key || p.uploadError) ||
+                  transitRoutes.length === 0 ||
+                  !String(selectedRouteId || "").trim()
                 }
                 className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -1285,6 +1356,9 @@ export default function StaffDashboard() {
 
         {/* Analytics */}
         {tab === "analytics" && <AnalyticsPanel />}
+
+        {/* Transit routes (lines / stations catalog) */}
+        {tab === "routes" && <StaffTransitRoutesPage />}
       </main>
     </div>
   );
