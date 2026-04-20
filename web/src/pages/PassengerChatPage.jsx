@@ -103,6 +103,10 @@ export default function PassengerChatPage() {
   const lastInterimRef = useRef("");
   const voiceEnabledRef = useRef(false);
   const activeAudioRef = useRef(null);
+  const sendingRef = useRef(false);
+  const pendingVoiceFinalsRef = useRef([]);
+  const lastSubmittedVoiceRef = useRef({ text: "", ts: 0 });
+  const ttsPlaybackTokenRef = useRef(0);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -113,6 +117,10 @@ export default function PassengerChatPage() {
     pendingNotificationIdsRef.current.clear();
     voiceEnabledRef.current = false;
   }, [user?.id]);
+
+  useEffect(() => {
+    sendingRef.current = sending;
+  }, [sending]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -247,11 +255,12 @@ export default function PassengerChatPage() {
 
   async function sendChatText(text) {
     const cleanText = text.trim();
-    if (!cleanText || sending) return;
+    if (!cleanText || sendingRef.current) return;
 
     const userId = `u-${Date.now()}`;
     setMessages((m) => [...m, { id: userId, role: "user", content: cleanText }]);
     setDraft("");
+    sendingRef.current = true;
     setSending(true);
 
     try {
@@ -357,6 +366,18 @@ export default function PassengerChatPage() {
             const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
             const blob = new Blob([bytes], { type: mime });
             const url = URL.createObjectURL(blob);
+            const playbackToken = ++ttsPlaybackTokenRef.current;
+
+            const previousAudio = activeAudioRef.current;
+            if (previousAudio) {
+              previousAudio.onended = null;
+              previousAudio.onerror = null;
+              try {
+                previousAudio.pause();
+              } catch {
+                // ignore
+              }
+            }
 
             setMessages((prev) =>
               prev.map((msg) =>
@@ -377,6 +398,8 @@ export default function PassengerChatPage() {
             const audio = new Audio(url);
             activeAudioRef.current = audio;
             audio.onended = () => {
+              if (ttsPlaybackTokenRef.current !== playbackToken) return;
+              activeAudioRef.current = null;
               if (recording && recorder?.state === "paused" && recorder.resume) {
                 try {
                   recorder.resume();
@@ -386,6 +409,8 @@ export default function PassengerChatPage() {
               }
             };
             audio.onerror = () => {
+              if (ttsPlaybackTokenRef.current !== playbackToken) return;
+              activeAudioRef.current = null;
               if (recording && recorder?.state === "paused" && recorder.resume) {
                 try {
                   recorder.resume();
@@ -415,7 +440,16 @@ export default function PassengerChatPage() {
         },
       ]);
     } finally {
+      sendingRef.current = false;
       setSending(false);
+      if (voiceEnabledRef.current) {
+        const queuedText = pendingVoiceFinalsRef.current.shift();
+        if (queuedText) {
+          void sendChatText(queuedText);
+        }
+      } else {
+        pendingVoiceFinalsRef.current = [];
+      }
     }
   }
 
@@ -451,6 +485,7 @@ export default function PassengerChatPage() {
       lastInterimRef.current = "";
 
       socket.onmessage = (evt) => {
+        if (!voiceEnabledRef.current || voiceSocketRef.current !== socket) return;
         try {
           const msg = JSON.parse(evt.data);
           if (msg?.type === "transcript") {
@@ -462,7 +497,20 @@ export default function PassengerChatPage() {
           if (msg?.type === "final") {
             const t = String(msg?.text || "").trim();
             setDraft("");
-            if (t) void sendChatText(t);
+            if (t) {
+              const now = Date.now();
+              const last = lastSubmittedVoiceRef.current;
+              const duplicate =
+                last.text.toLowerCase() === t.toLowerCase() && now - last.ts < 3000;
+              if (!duplicate) {
+                lastSubmittedVoiceRef.current = { text: t, ts: now };
+                if (sendingRef.current) {
+                  pendingVoiceFinalsRef.current.push(t);
+                } else {
+                  void sendChatText(t);
+                }
+              }
+            }
             return;
           }
           if (msg?.type === "error") {
@@ -544,30 +592,79 @@ export default function PassengerChatPage() {
   }
 
   function stopVoice() {
-    if (!recording) return;
     setRecording(false);
     voiceEnabledRef.current = false;
-    try {
-      activeAudioRef.current?.pause?.();
-    } catch {
-      // ignore
+    setDraft("");
+
+    pendingVoiceFinalsRef.current = [];
+    lastSubmittedVoiceRef.current = { text: "", ts: 0 };
+    lastInterimRef.current = "";
+
+    ttsPlaybackTokenRef.current += 1;
+    const activeAudio = activeAudioRef.current;
+    if (activeAudio) {
+      activeAudio.onended = null;
+      activeAudio.onerror = null;
+      try {
+        activeAudio.pause();
+      } catch {
+        // ignore
+      }
     }
     activeAudioRef.current = null;
+
     const socket = voiceSocketRef.current;
-    if (socket && socket.readyState === WebSocket.OPEN) {
-      socket.send("__STOP__");
+    if (socket) {
+      try {
+        socket.onmessage = null;
+        socket.onopen = null;
+        socket.onerror = null;
+        socket.onclose = null;
+      } catch {
+        // ignore
+      }
+      try {
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send("__STOP__");
+        }
+      } catch {
+        // ignore
+      }
       try {
         socket.close();
       } catch {
         // ignore
       }
     }
+    voiceSocketRef.current = null;
+
     const recorder = mediaRecorderRef.current;
-    if (recorder && recorder.state !== "inactive") {
-      recorder.stop();
+    if (recorder) {
+      try {
+        recorder.ondataavailable = null;
+      } catch {
+        // ignore
+      }
+      try {
+        if (recorder.state !== "inactive") {
+          recorder.stop();
+        }
+      } catch {
+        // ignore
+      }
+      try {
+        recorder.stream?.getTracks?.().forEach((t) => {
+          try {
+            t.stop();
+          } catch {
+            // ignore
+          }
+        });
+      } catch {
+        // ignore
+      }
     }
     mediaRecorderRef.current = null;
-    voiceSocketRef.current = null;
   }
 
   async function handleClaimFromMatch(messageId, match) {
