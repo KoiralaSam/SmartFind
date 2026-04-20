@@ -390,6 +390,38 @@ def _parse_route_pair(text: str) -> tuple[str, str]:
         return _clean_route_value(m.group(1)), _clean_route_value(m.group(2))
     return "", ""
 
+def _parse_time_str(text: str) -> str:
+    """Parse any reasonable time expression into 24-hour HH:MM. Returns '' if unparseable."""
+    t = (text or "").strip().lower()
+    if not t:
+        return ""
+    if "noon" in t:
+        return "12:00"
+    if "midnight" in t:
+        return "00:00"
+    # HH:MM with optional am/pm — e.g. "13:00", "1:30 pm"
+    m = re.search(r"\b(\d{1,2}):(\d{2})\s*([ap]\.?m\.?)?\b", t, re.IGNORECASE)
+    if m:
+        hour, minute = int(m.group(1)), int(m.group(2))
+        period = (m.group(3) or "").lower().replace(".", "")
+        if period == "pm" and hour != 12:
+            hour += 12
+        elif period == "am" and hour == 12:
+            hour = 0
+        return f"{hour:02d}:{minute:02d}"
+    # Hour-only with am/pm — e.g. "1pm", "2 AM", "at 1PM"
+    m = re.search(r"\b(\d{1,2})\s*([ap]\.?m\.?)\b", t, re.IGNORECASE)
+    if m:
+        hour = int(m.group(1))
+        period = m.group(2).lower().replace(".", "")
+        if period == "pm" and hour != 12:
+            hour += 12
+        elif period == "am" and hour == 12:
+            hour = 0
+        return f"{hour:02d}:00"
+    return ""
+
+
 def _extract_slots_from_conversation(conversation: List[dict]) -> dict:
     state = {k: "" for k in _SLOT_ORDER}
     user_texts = [str(m.get("content") or "") for m in conversation if m.get("role") == "user"]
@@ -491,13 +523,7 @@ def _extract_slots_from_conversation(conversation: List[dict]) -> dict:
                 if rel:
                     state[asked] = rel
         elif asked == "time_lost":
-            mtime = re.search(r"\b(\d{1,2}:\d{2})\b", user_msg)
-            if mtime:
-                state[asked] = mtime.group(1)
-            elif "noon" in user_msg.lower():
-                state[asked] = "12:00"
-            elif "midnight" in user_msg.lower():
-                state[asked] = "00:00"
+            state[asked] = _parse_time_str(user_msg)
 
     frm, to = _parse_route_pair(combined)
     if not state["route_from"] and frm:
@@ -521,11 +547,9 @@ def _extract_slots_from_conversation(conversation: List[dict]) -> dict:
         rel = _resolve_relative_date_words(lower_all)
         if rel:
             state["date_lost"] = rel
-    mtime = re.search(r"\b(\d{1,2}:\d{2})\b", lower_all)
-    if mtime:
-        state["time_lost"] = mtime.group(1)
-    if "noon" in lower_all:
-        state["time_lost"] = "12:00"
+    parsed_time = _parse_time_str(lower_all)
+    if parsed_time:
+        state["time_lost"] = parsed_time
 
     for k in _SLOT_ORDER:
         state[k] = str(state.get(k) or "").strip()

@@ -1,68 +1,92 @@
 import { useEffect, useState } from "react";
+import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 import {
-  AlertTriangle,
   BarChart3,
   Calendar,
-  CircleDot,
   Clock,
   Flame,
   Lightbulb,
   Loader2,
   MapPin,
-  Minus,
-  RefreshCw,
   ShieldAlert,
-  TrendingDown,
-  TrendingUp,
 } from "lucide-react";
 
 const ANALYTICS_BASE_URL =
   import.meta.env.VITE_ANALYTICS_API_URL || "http://localhost:8092";
 
-// ─── Risk thresholds (computed from relative incident density) ──
+// ─── Risk config ────────────────────────────────────────────────
+const RISK = {
+  critical: {
+    color: "#ef4444",
+    fill: "#ef4444",
+    radius: 20,
+    label: "Critical",
+    badge: "bg-red-100 text-red-700 border-red-200",
+    dot: "bg-red-500",
+  },
+  high: {
+    color: "#f97316",
+    fill: "#f97316",
+    radius: 15,
+    label: "High",
+    badge: "bg-orange-100 text-orange-700 border-orange-200",
+    dot: "bg-orange-500",
+  },
+  medium: {
+    color: "#f59e0b",
+    fill: "#f59e0b",
+    radius: 11,
+    label: "Medium",
+    badge: "bg-amber-100 text-amber-700 border-amber-200",
+    dot: "bg-amber-400",
+  },
+  low: {
+    color: "#22c55e",
+    fill: "#22c55e",
+    radius: 7,
+    label: "Low",
+    badge: "bg-green-100 text-green-700 border-green-200",
+    dot: "bg-green-500",
+  },
+};
+
 function computeRiskLevel(count, max) {
   if (max === 0) return "low";
-  const ratio = count / max;
-  if (ratio >= 0.75) return "critical";
-  if (ratio >= 0.45) return "high";
-  if (ratio >= 0.2) return "medium";
+  const r = count / max;
+  if (r >= 0.75) return "critical";
+  if (r >= 0.45) return "high";
+  if (r >= 0.2) return "medium";
   return "low";
 }
 
-const RISK = {
-  critical: {
-    bar: "bg-red-500",
-    badge: "bg-red-100 text-red-700 border-red-200",
-    card: "border-red-100 bg-red-50/40",
-    dot: "bg-red-500",
-    score: "text-red-600",
-    label: "Critical",
-  },
-  high: {
-    bar: "bg-orange-500",
-    badge: "bg-orange-100 text-orange-700 border-orange-200",
-    card: "border-orange-100 bg-orange-50/40",
-    dot: "bg-orange-500",
-    score: "text-orange-600",
-    label: "High",
-  },
-  medium: {
-    bar: "bg-amber-400",
-    badge: "bg-amber-100 text-amber-700 border-amber-200",
-    card: "border-amber-100 bg-amber-50/30",
-    dot: "bg-amber-400",
-    score: "text-amber-600",
-    label: "Medium",
-  },
-  low: {
-    bar: "bg-green-500",
-    badge: "bg-green-100 text-green-700 border-green-200",
-    card: "border-green-100 bg-green-50/30",
-    dot: "bg-green-500",
-    score: "text-green-600",
-    label: "Low",
-  },
-};
+// ─── Geocode via Nominatim ───────────────────────────────────────
+async function geocode(name) {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(name + ", USA")}&format=json&limit=1&countrycodes=us`,
+      { headers: { "User-Agent": "SmartFind-LostFound/1.0" } }
+    );
+    const data = await res.json();
+    if (data?.length > 0)
+      return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+  } catch {}
+  return null;
+}
+
+// ─── Fit map to markers ─────────────────────────────────────────
+function FitBounds({ coords }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!coords.length) return;
+    if (coords.length === 1) {
+      map.setView(coords[0], 11);
+    } else {
+      map.fitBounds(coords, { padding: [50, 50] });
+    }
+  }, [map, coords]);
+  return null;
+}
 
 // ─── Helpers ────────────────────────────────────────────────────
 function TrendIcon({ trend }) {
@@ -107,102 +131,16 @@ function StatCard({ icon: Icon, label, value, accent, sub }) {
   );
 }
 
-// ─── Hotspot Row ────────────────────────────────────────────────
-function HotspotRow({ hotspot, maxCount, rank, isAI }) {
-  const riskLevel = isAI
-    ? hotspot.risk_level
-    : computeRiskLevel(hotspot.incident_count ?? hotspot.total_incidents, maxCount);
-  const risk = RISK[riskLevel] || RISK.low;
-  const count = hotspot.incident_count ?? hotspot.total_incidents ?? 0;
-  const pct = maxCount > 0 ? (count / maxCount) * 100 : 0;
-
-  return (
-    <div className={`rounded-2xl border p-4 transition hover:shadow-sm ${risk.card}`}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-foreground/8 text-xs font-semibold text-foreground/70">
-            {rank}
-          </span>
-          <div className="min-w-0">
-            <h3 className="truncate text-sm font-semibold">
-              {hotspot.location}
-            </h3>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">
-              {count} lost report{count !== 1 ? "s" : ""}
-              {hotspot.open_count != null && (
-                <> · {hotspot.open_count} open</>
-              )}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
-          {isAI && <TrendIcon trend={hotspot.trend} />}
-          <span
-            className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${risk.badge}`}
-          >
-            <CircleDot className="h-2.5 w-2.5" />
-            {risk.label}
-          </span>
-        </div>
-      </div>
-
-      {/* density bar */}
-      <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-border/60">
-        <div
-          className={`h-full rounded-full ${risk.bar}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-        {/* categories (AI reports only) */}
-        {isAI && (hotspot.top_categories || []).length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {hotspot.top_categories.slice(0, 3).map((cat) => (
-              <span
-                key={cat}
-                className="rounded-full bg-background/70 px-2 py-0.5 text-[10px] font-medium text-foreground/70 ring-1 ring-border"
-              >
-                {cat}
-              </span>
-            ))}
-          </div>
-        )}
-        {/* risk score (AI) or relative density (live) */}
-        <span className="ml-auto text-[11px] font-medium text-muted-foreground">
-          {isAI ? (
-            <>
-              Score{" "}
-              <span className={`font-semibold ${risk.score}`}>
-                {hotspot.risk_score?.toFixed(1) ?? "—"}
-              </span>
-              /10
-            </>
-          ) : (
-            <span className={`font-semibold ${risk.score}`}>
-              {Math.round(pct)}% density
-            </span>
-          )}
-        </span>
-      </div>
-
-      {isAI && hotspot.recommendation && (
-        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground/80">
-          <span className="font-medium text-foreground/60">Rec: </span>
-          {hotspot.recommendation}
-        </p>
-      )}
-    </div>
-  );
-}
-
 // ─── Main Panel ─────────────────────────────────────────────────
 export default function AnalyticsPanel() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  // [{hotspot, coords: [lat, lng] | null}]
+  const [mapped, setMapped] = useState([]);
+  const [geocoding, setGeocoding] = useState(false);
 
+  // Fetch heatmap data
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -223,14 +161,40 @@ export default function AnalyticsPanel() {
     return () => { cancelled = true; };
   }, []);
 
-  // Normalise: stored AI reports use data.hotspots; live queries use data.hotspots or data.locations
+  // Geocode hotspots when data arrives
+  useEffect(() => {
+    if (!data) return;
+    const isAI = data.source === "stored_report";
+    const hotspots = data.hotspots ?? data.locations ?? [];
+    if (!hotspots.length) { setMapped([]); return; }
+
+    let cancelled = false;
+    async function geocodeAll() {
+      setGeocoding(true);
+      const results = [];
+      for (const h of hotspots) {
+        if (cancelled) break;
+        const coords = await geocode(h.location);
+        results.push({ hotspot: h, coords, isAI });
+        // Rate-limit Nominatim: 1 req/sec
+        await new Promise((r) => setTimeout(r, 1100));
+      }
+      if (!cancelled) {
+        setMapped(results);
+        setGeocoding(false);
+      }
+    }
+    geocodeAll();
+    return () => { cancelled = true; };
+  }, [data]);
+
   const isAI = data?.source === "stored_report";
   const hotspots = data?.hotspots ?? data?.locations ?? [];
   const totalIncidents =
     data?.total_incidents_analyzed ?? data?.total_incidents ?? 0;
   const maxCount = hotspots.reduce(
     (m, h) => Math.max(m, h.incident_count ?? h.total_incidents ?? 0),
-    0,
+    0
   );
   const criticalCount = hotspots.filter((h) => {
     const lvl = isAI
@@ -245,10 +209,12 @@ export default function AnalyticsPanel() {
     return lvl === "critical" || lvl === "high";
   }).length;
 
+  const placedCoords = mapped.filter((m) => m.coords).map((m) => m.coords);
+
   const isEmpty =
     !loading && !error && (hotspots.length === 0 || totalIncidents === 0);
 
-  // ── Loading ────────────────────────────────────────────────────
+  // ── Loading ─────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="flex items-center justify-center py-24 text-muted-foreground">
@@ -258,7 +224,7 @@ export default function AnalyticsPanel() {
     );
   }
 
-  // ── Error ──────────────────────────────────────────────────────
+  // ── Error ───────────────────────────────────────────────────
   if (error) {
     return (
       <div className="rounded-2xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
@@ -268,7 +234,7 @@ export default function AnalyticsPanel() {
     );
   }
 
-  // ── Empty ──────────────────────────────────────────────────────
+  // ── Empty ───────────────────────────────────────────────────
   if (isEmpty) {
     return (
       <div className="rounded-2xl border border-dashed border-border bg-card p-12 text-center shadow-sm">
@@ -284,10 +250,10 @@ export default function AnalyticsPanel() {
     );
   }
 
-  // ── Data ───────────────────────────────────────────────────────
+  // ── Data ────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      {/* page label */}
+      {/* header */}
       <div>
         <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
           Predictive Analytics
@@ -296,7 +262,7 @@ export default function AnalyticsPanel() {
           Hotspot Map
         </h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          High-risk routes and stations based on passenger lost item reports.
+          High-risk routes and stations based on lost &amp; found item reports.
         </p>
       </div>
 
@@ -329,119 +295,169 @@ export default function AnalyticsPanel() {
         />
       </div>
 
-      {/* main grid */}
-      <div className="grid gap-6 lg:grid-cols-5">
-        {/* hotspot list — 3 cols */}
-        <div className="space-y-4 lg:col-span-3">
-          {/* legend */}
-          <div className="flex flex-wrap gap-2">
-            {["critical", "high", "medium", "low"].map((lvl) => {
-              const r = RISK[lvl];
-              return (
-                <span
-                  key={lvl}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${r.badge}`}
-                >
-                  <span className={`h-1.5 w-1.5 rounded-full ${r.dot}`} />
-                  {r.label}
-                </span>
-              );
-            })}
-            <span className="ml-auto text-[11px] text-muted-foreground">
-              {hotspots.length} location{hotspots.length !== 1 ? "s" : ""}
+      {/* ── MAP — full width centered ── */}
+      <div className="overflow-hidden rounded-2xl border border-border shadow-sm" style={{ height: 500 }}>
+        {/* legend bar */}
+        <div className="flex items-center gap-4 border-b border-border bg-card px-4 py-2.5">
+          {["critical", "high", "medium", "low"].map((lvl) => {
+            const r = RISK[lvl];
+            return (
+              <span
+                key={lvl}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium ${r.badge}`}
+              >
+                <span className={`h-2 w-2 rounded-full ${r.dot}`} />
+                {r.label}
+              </span>
+            );
+          })}
+          {geocoding && (
+            <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Placing pins…
             </span>
-          </div>
+          )}
+        </div>
 
-          <div className="space-y-3">
-            {hotspots.map((h, i) => (
-              <HotspotRow
+        <MapContainer
+          center={[39.5, -98.35]}
+          zoom={4}
+          minZoom={3}
+          maxBounds={[[15, -170], [75, -50]]}
+          maxBoundsViscosity={1.0}
+          style={{ height: "calc(100% - 41px)", width: "100%" }}
+          scrollWheelZoom
+        >
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+
+          {placedCoords.length > 0 && <FitBounds coords={placedCoords} />}
+
+          {mapped.map(({ hotspot: h, coords, isAI: ai }, i) => {
+            if (!coords) return null;
+            const count = h.incident_count ?? h.total_incidents ?? 0;
+            const lvl = ai ? h.risk_level : computeRiskLevel(count, maxCount);
+            const risk = RISK[lvl] || RISK.low;
+
+            return (
+              <CircleMarker
                 key={(h.location || h.route_id || "") + i}
-                hotspot={h}
-                maxCount={maxCount}
-                rank={h.rank ?? i + 1}
-                isAI={isAI}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* insights panel — 2 cols */}
-        <div className="space-y-4 lg:col-span-2">
-          {/* AI summary */}
-          {data?.summary && (
-            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                AI Summary
-              </p>
-              <p className="mt-3 text-sm leading-relaxed text-foreground/80">
-                {data.summary}
-              </p>
-            </div>
-          )}
-
-          {/* Temporal insights */}
-          {data?.temporal_insights && (
-            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-              <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                  Temporal Patterns
-                </p>
-              </div>
-              <div className="mt-4 space-y-2">
-                {[
-                  { label: "Peak day", value: data.temporal_insights.peak_day, icon: Calendar },
-                  { label: "Peak hours", value: data.temporal_insights.peak_hour_range, icon: Clock },
-                  { label: "Busiest month", value: data.temporal_insights.busiest_month, icon: BarChart3 },
-                ].map(({ label, value, icon: Icon }) => (
-                  <div
-                    key={label}
-                    className="flex items-center justify-between rounded-xl bg-muted/50 px-3.5 py-2.5"
-                  >
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <Icon className="h-3.5 w-3.5" />
-                      {label}
-                    </div>
-                    <span className="text-xs font-semibold">{value || "—"}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Recommendations */}
-          {(data?.recommendations?.length > 0) && (
-            <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-              <div className="flex items-center gap-2">
-                <Lightbulb className="h-4 w-4 text-amber-500" />
-                <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                  Recommendations
-                </p>
-              </div>
-              <ul className="mt-4 space-y-2.5">
-                {data.recommendations.map((rec, i) => (
-                  <li key={i} className="flex items-start gap-2.5 text-xs leading-relaxed">
-                    <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-amber-100 text-[9px] font-bold text-amber-700">
-                      {i + 1}
+                center={coords}
+                radius={risk.radius}
+                pathOptions={{
+                  color: risk.color,
+                  fillColor: risk.fill,
+                  fillOpacity: 0.75,
+                  weight: 2,
+                }}
+              >
+                <Tooltip direction="top" offset={[0, -risk.radius]} opacity={1}>
+                  <div className="min-w-[160px] space-y-1 text-xs">
+                    <p className="font-semibold">{h.location}</p>
+                    <p>{count} lost report{count !== 1 ? "s" : ""}</p>
+                    {h.open_count != null && (
+                      <p className="text-muted-foreground">{h.open_count} open</p>
+                    )}
+                    <span
+                      style={{
+                        display: "inline-block",
+                        background: risk.fill,
+                        color: "#fff",
+                        borderRadius: 999,
+                        padding: "1px 8px",
+                        fontSize: 10,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {risk.label}
                     </span>
-                    <span className="text-muted-foreground">{rec}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+                    {ai && h.recommendation && (
+                      <p className="mt-1 italic text-gray-600">{h.recommendation}</p>
+                    )}
+                  </div>
+                </Tooltip>
+              </CircleMarker>
+            );
+          })}
+        </MapContainer>
+      </div>
 
-          {/* source badge */}
-          <div className="flex items-center justify-between rounded-xl border border-border/60 bg-muted/30 px-3.5 py-2.5">
-            <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <MapPin className="h-3 w-3" />
-              Based on
-            </div>
-            <span className="rounded-full bg-background px-2 py-0.5 text-[10px] font-medium ring-1 ring-border">
-              Passenger lost reports
-            </span>
+      {/* unmapped notice */}
+      {mapped.some((m) => !m.coords) && (
+        <p className="text-[11px] text-muted-foreground">
+          <MapPin className="mr-1 inline h-3 w-3" />
+          {mapped.filter((m) => !m.coords).length} location
+          {mapped.filter((m) => !m.coords).length !== 1 ? "s" : ""} could not be placed on the map.
+        </p>
+      )}
+
+      {/* ── Insights row — 3 cols ── */}
+      <div className="grid gap-4 md:grid-cols-3">
+        {/* AI summary */}
+        {data?.summary && (
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+              AI Summary
+            </p>
+            <p className="mt-3 text-sm leading-relaxed text-foreground/80">
+              {data.summary}
+            </p>
           </div>
-        </div>
+        )}
+
+        {/* Temporal insights */}
+        {data?.temporal_insights && (
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Calendar className="h-4 w-4 text-muted-foreground" />
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+                Temporal Patterns
+              </p>
+            </div>
+            <div className="mt-4 space-y-2">
+              {[
+                { label: "Peak day", value: data.temporal_insights.peak_day, icon: Calendar },
+                { label: "Peak hours", value: data.temporal_insights.peak_hour_range, icon: Clock },
+                { label: "Busiest month", value: data.temporal_insights.busiest_month, icon: BarChart3 },
+              ].map(({ label, value, icon: Icon }) => (
+                <div
+                  key={label}
+                  className="flex items-center justify-between rounded-xl bg-muted/50 px-3.5 py-2.5"
+                >
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Icon className="h-3.5 w-3.5" />
+                    {label}
+                  </div>
+                  <span className="text-xs font-semibold">{value || "—"}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Staff recommendations */}
+        {data?.recommendations?.length > 0 && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-5 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Lightbulb className="h-4 w-4 text-amber-500" />
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-amber-700">
+                Staff Action Plan
+              </p>
+            </div>
+            <ul className="mt-4 space-y-3">
+              {data.recommendations.map((rec, i) => (
+                <li key={i} className="flex items-start gap-2.5 text-xs leading-relaxed">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-400 text-[9px] font-bold text-white">
+                    {i + 1}
+                  </span>
+                  <span className="text-amber-900/80">{rec}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -36,7 +36,7 @@ spec:
               valueFrom:
                 secretKeyRef:
                   name: postgres-secret
-                  key: DATABASE_URL
+                  key: DATABASE_URL_CLUSTER
             - name: ANALYTICS_GOOGLE_SERVICE_ACCOUNT_JSON
               valueFrom:
                 secretKeyRef:
