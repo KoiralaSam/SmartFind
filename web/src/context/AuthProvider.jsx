@@ -4,6 +4,8 @@ import { legoAvatarFromSeed } from "../lib/avatarUrl";
 import { AuthContext } from "./auth-context";
 
 const STORAGE_KEY = "smartfind-auth";
+const GATEWAY_BASE_URL = import.meta.env.VITE_API_GATEWAY_URL || "";
+const GATEWAY_PATH_PREFIX = GATEWAY_BASE_URL ? "" : "/gateway";
 
 function persistUser(next) {
   sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
@@ -74,12 +76,15 @@ export function AuthProvider({ children }) {
     }
     let payload;
     try {
-      const res = await fetch("/passenger/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ id_token: credential }),
-      });
+      const res = await fetch(
+        `${GATEWAY_BASE_URL}${GATEWAY_PATH_PREFIX}/passenger/login`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ id_token: credential }),
+        },
+      );
       payload = await res.json();
       if (!res.ok) {
         return {

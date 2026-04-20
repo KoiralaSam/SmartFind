@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, CheckCircle2, ImageIcon, Loader2, LogOut, Mic, MicOff, Send, Sparkles } from "lucide-react";
+import { Bot, CheckCircle2, ImageIcon, Loader2, Mic, MicOff, Send, Sparkles } from "lucide-react";
 import { AccountAvatar } from "../components/AccountAvatar";
 import { useAuth } from "../context/useAuth";
 
@@ -38,31 +38,27 @@ function formatBackendResult(action, data) {
       const report = data.report || data;
       return `✅ Your lost item report has been filed!\n\nReport ID: ${report.id || "—"}\nItem: ${report.item_name || "—"}\nStatus: ${report.status || "open"}`;
     }
-
     case "list_lost_reports": {
       const reports = data.reports || [];
       if (reports.length === 0) return "You have no lost item reports on file.";
       const lines = reports.map(
         (r, i) =>
-          `${i + 1}. ${r.item_name || "Unnamed"} — ${r.status || "open"} (ID: ${r.id})`,
+          `${i + 1}. ${r.item_name || "Unnamed"} - ${r.status || "open"} (ID: ${r.id})`,
       );
       return `Here are your lost item reports:\n\n${lines.join("\n")}`;
     }
-
     case "delete_lost_report":
-      return "✅ The lost item report has been deleted.";
-
+      return "The lost item report has been deleted.";
     case "search_found_item_matches": {
       const matches = data.matches || [];
       if (matches.length === 0)
-        return "No matching found items yet. We'll keep looking!";
+        return "No matching found items yet. We will keep looking.";
       const lines = matches.map(
         (m, i) =>
-          `${i + 1}. ${m.item_name || "Unnamed"} — ${m.color || ""} ${m.brand || ""} (score: ${(m.similarity_score ?? 0).toFixed(2)}, ID: ${m.found_item_id})`,
+          `${i + 1}. ${m.item_name || "Unnamed"} - ${m.color || ""} ${m.brand || ""} (score: ${(m.similarity_score ?? 0).toFixed(2)}, ID: ${m.found_item_id})`,
       );
       return `We found potential matches:\n\n${lines.join("\n")}`;
     }
-
     case "file_claim":
       return `✅ Your claim has been filed!\n\nClaim ID: ${data.id || "—"}\nStatus: ${data.status || "pending"}`;
 
@@ -75,14 +71,13 @@ function formatBackendResult(action, data) {
       );
       return `Here are your claims:\n\n${lines.join("\n")}`;
     }
-
     default:
       return "Done.";
   }
 }
 
 export default function PassengerChatPage() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const [messages, setMessages] = useState(() => [
     {
       id: "welcome",
@@ -748,207 +743,188 @@ export default function PassengerChatPage() {
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-gradient-to-b from-muted/40 via-background to-background">
-      <header className="shrink-0 border-b border-border/80 bg-background/90 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-3 sm:px-4">
-          <div className="flex min-w-0 flex-1 items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-sm">
-              <Sparkles className="h-4 w-4" aria-hidden />
-            </div>
-            <div className="min-w-0">
-              <h1 className="truncate text-sm font-semibold leading-tight sm:text-base">
-                Transit assistant
-              </h1>
-              <p className="truncate text-xs text-muted-foreground">
-                Lost & Found intake assistant
-              </p>
+    <div className="h-full overflow-hidden">
+      <div className="flex h-full w-full flex-col px-1 py-2 sm:px-0 sm:py-3">
+        <header className="shrink-0 border-b border-border/70 px-2 py-2 sm:px-0">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center text-foreground sm:h-9 sm:w-9">
+                <Sparkles className="h-4 w-4" aria-hidden />
+              </div>
+              <div className="min-w-0">
+                <h1 className="truncate text-sm font-semibold tracking-tight sm:text-base">
+                  SmartFind Passenger Assistant
+                </h1>
+                <p className="truncate text-[11px] text-muted-foreground sm:text-sm">
+                  Report, track, and claim lost items in one place
+                </p>
+              </div>
             </div>
           </div>
-          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            {user ? (
-              <>
-                <AccountAvatar user={user} sizeClass="h-8 w-8 sm:h-9 sm:w-9" />
-                <span className="hidden max-w-[100px] truncate text-xs text-muted-foreground sm:inline sm:max-w-[160px] sm:text-sm">
-                  {user.name}
-                </span>
-              </>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => logout()}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-medium transition hover:bg-muted sm:text-sm"
-            >
-              <LogOut className="h-3.5 w-3.5" aria-hidden />
-              End session
-            </button>
-          </div>
-        </div>
-      </header>
+        </header>
 
-      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col overflow-hidden px-3 sm:px-4">
-        <div className="flex-1 space-y-4 overflow-y-auto py-4 pr-1">
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
-            >
-              {msg.role === "user" ? (
-                <AccountAvatar
-                  user={user}
-                  sizeClass="h-8 w-8 sm:h-9 sm:w-9"
-                />
-              ) : (
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-white sm:h-9 sm:w-9">
-                  <Bot className="h-4 w-4" aria-hidden />
-                </div>
-              )}
+        <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col overflow-hidden px-2 sm:px-4">
+          <div className="flex-1 space-y-3 overflow-y-auto py-3 pr-1 sm:space-y-4 sm:py-4">
+            {messages.map((msg) => (
               <div
-                className={`max-w-[min(100%,28rem)] rounded-2xl px-4 py-3 text-sm leading-relaxed shadow-sm sm:text-[15px] ${
-                  msg.role === "user"
-                    ? "rounded-tr-md border border-border/80 bg-card text-card-foreground"
-                    : "rounded-tl-md border border-border/80 bg-card text-card-foreground"
-                }`}
+                key={msg.id}
+                className={`flex gap-2.5 sm:gap-3 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
               >
-                <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                {msg.role === "assistant" && msg.audioUrl ? (
-                  <div className="mt-3">
-                    <audio
-                      src={msg.audioUrl}
-                      controls
-                      autoPlay={recording}
-                      className="w-full"
-                    />
+                {msg.role === "user" ? (
+                  <AccountAvatar user={user} sizeClass="h-8 w-8 sm:h-9 sm:w-9" />
+                ) : (
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-white sm:h-9 sm:w-9">
+                    <Bot className="h-4 w-4" aria-hidden />
                   </div>
-                ) : null}
-                {msg.role === "assistant" && msg.matchCards?.matches?.length > 0 ? (
-                  <div className="mt-3 space-y-2.5">
-                    {msg.matchCards.matches.map((match) => {
-                      const images = matchImages(match);
-                      const isClaiming =
-                        msg.matchCards.claimingId === match.found_item_id;
-                      const isClaimed =
-                        msg.matchCards.claimedId === match.found_item_id;
-                      return (
-                        <button
-                          key={match.found_item_id}
-                          type="button"
-                          disabled={isClaiming || isClaimed}
-                          onClick={() => handleClaimFromMatch(msg.id, match)}
-                          className="w-full rounded-xl border border-border/80 bg-background p-3 text-left transition hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-75"
-                        >
-                          <div className="grid grid-cols-4 gap-2">
-                            {images.length > 0 ? (
-                              images.map((url, idx) => (
-                                <img
-                                  key={`${match.found_item_id}-${idx}`}
-                                  src={url}
-                                  alt={`${match.item_name || "Matched item"} ${idx + 1}`}
-                                  className="h-16 w-full rounded-md object-cover"
-                                />
-                              ))
-                            ) : (
-                              <div className="col-span-4 flex h-16 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground">
-                                <ImageIcon className="mr-1.5 h-4 w-4" />
-                                No photos available
-                              </div>
-                            )}
-                          </div>
-                          <div className="mt-2 space-y-1">
-                            <p className="text-sm font-semibold text-foreground">
-                              {match.item_name || "Unnamed item"}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                              {[match.color, match.brand, match.model]
-                                .filter(Boolean)
-                                .join(" • ") || "No extra details"}
-                            </p>
-                            {match.item_description ? (
-                              <p className="line-clamp-2 text-xs text-muted-foreground/90">
-                                {match.item_description}
-                              </p>
-                            ) : null}
-                          </div>
-                          <div className="mt-2 flex items-center justify-between">
-                            <span className="text-[11px] text-muted-foreground">
-                              Score {(match.similarity_score ?? 0).toFixed(2)}
-                            </span>
-                            <span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[11px] font-medium">
-                              {isClaimed ? (
-                                <>
-                                  <CheckCircle2 className="mr-1 h-3.5 w-3.5 text-emerald-500" />
-                                  Claim filed
-                                </>
-                              ) : isClaiming ? (
-                                <>
-                                  <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
-                                  Filing claim...
-                                </>
+                )}
+                <div
+                  className={`max-w-[min(100%,24rem)] sm:max-w-[min(100%,28rem)] rounded-2xl px-3 py-2.5 text-sm leading-relaxed shadow-sm sm:px-4 sm:py-3 sm:text-[15px] ${
+                    msg.role === "user"
+                      ? "rounded-tr-md border border-border/80 bg-card text-card-foreground"
+                      : "rounded-tl-md border border-border/80 bg-card text-card-foreground"
+                  }`}
+                >
+                  <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                  {msg.role === "assistant" && msg.audioUrl ? (
+                    <div className="mt-3">
+                      <audio
+                        src={msg.audioUrl}
+                        controls
+                        autoPlay={recording}
+                        className="w-full"
+                      />
+                    </div>
+                  ) : null}
+                  {msg.role === "assistant" && msg.matchCards?.matches?.length > 0 ? (
+                    <div className="mt-3 space-y-2.5">
+                      {msg.matchCards.matches.map((match) => {
+                        const images = matchImages(match);
+                        const isClaiming =
+                          msg.matchCards.claimingId === match.found_item_id;
+                        const isClaimed =
+                          msg.matchCards.claimedId === match.found_item_id;
+                        return (
+                          <button
+                            key={match.found_item_id}
+                            type="button"
+                            disabled={isClaiming || isClaimed}
+                            onClick={() => handleClaimFromMatch(msg.id, match)}
+                            className="w-full rounded-xl border border-border/80 bg-background p-3 text-left transition hover:bg-muted/40 disabled:cursor-not-allowed disabled:opacity-75"
+                          >
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                              {images.length > 0 ? (
+                                images.map((url, idx) => (
+                                  <img
+                                    key={`${match.found_item_id}-${idx}`}
+                                    src={url}
+                                    alt={`${match.item_name || "Matched item"} ${idx + 1}`}
+                                    className="h-16 w-full rounded-md object-cover"
+                                  />
+                                ))
                               ) : (
-                                "Select & file claim"
+                                <div className="col-span-4 flex h-16 items-center justify-center rounded-md border border-dashed border-border text-muted-foreground">
+                                  <ImageIcon className="mr-1.5 h-4 w-4" />
+                                  No photos available
+                                </div>
                               )}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
+                            </div>
+                            <div className="mt-2 space-y-1">
+                              <p className="text-sm font-semibold text-foreground">
+                                {match.item_name || "Unnamed item"}
+                              </p>
+                              <p className="text-xs text-muted-foreground">
+                                {[match.color, match.brand, match.model]
+                                  .filter(Boolean)
+                                  .join(" • ") || "No extra details"}
+                              </p>
+                              {match.item_description ? (
+                                <p className="line-clamp-2 text-xs text-muted-foreground/90">
+                                  {match.item_description}
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="mt-2 flex items-center justify-between">
+                              <span className="text-[11px] text-muted-foreground">
+                                Score {(match.similarity_score ?? 0).toFixed(2)}
+                              </span>
+                              <span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[11px] font-medium">
+                                {isClaimed ? (
+                                  <>
+                                    <CheckCircle2 className="mr-1 h-3.5 w-3.5 text-emerald-500" />
+                                    Claim filed
+                                  </>
+                                ) : isClaiming ? (
+                                  <>
+                                    <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+                                    Filing claim...
+                                  </>
+                                ) : (
+                                  "Select & file claim"
+                                )}
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          ))}
-          {sending ? (
-            <div className="flex gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-white sm:h-9 sm:w-9">
-                <Bot className="h-4 w-4 animate-pulse" aria-hidden />
+            ))}
+            {sending ? (
+              <div className="flex gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-white sm:h-9 sm:w-9">
+                  <Bot className="h-4 w-4 animate-pulse" aria-hidden />
+                </div>
+                <div className="rounded-2xl rounded-tl-md border border-border/80 bg-muted/60 px-4 py-3 text-sm text-muted-foreground">
+                  Thinking...
+                </div>
               </div>
-              <div className="rounded-2xl rounded-tl-md border border-border/80 bg-muted/60 px-4 py-3 text-sm text-muted-foreground">
-                …
-              </div>
-            </div>
-          ) : null}
-          <div ref={bottomRef} />
-        </div>
-
-        <form
-          onSubmit={handleSend}
-          className="shrink-0 border-t border-border/80 bg-background/95 py-3 backdrop-blur-sm"
-        >
-          <div className="flex gap-2 rounded-2xl border border-border bg-muted/30 p-1.5 shadow-inner focus-within:ring-2 focus-within:ring-ring/30">
-            <label htmlFor="chat-input" className="sr-only">
-              Message
-            </label>
-            <input
-              id="chat-input"
-              type="text"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={recording ? "Listening…" : "Message the assistant…"}
-              autoComplete="off"
-              className="min-h-11 flex-1 rounded-xl border-0 bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-0"
-            />
-            <button
-              type="button"
-              onClick={() => (recording ? stopVoice() : startVoice())}
-              disabled={sending}
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-foreground transition hover:bg-muted/40 disabled:pointer-events-none disabled:opacity-40"
-              title={recording ? "Stop voice" : "Start voice"}
-            >
-              {recording ? (
-                <MicOff className="h-4 w-4" aria-hidden />
-              ) : (
-                <Mic className="h-4 w-4" aria-hidden />
-              )}
-            </button>
-            <button
-              type="submit"
-              disabled={!draft.trim() || sending}
-              className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-90 disabled:pointer-events-none disabled:opacity-40"
-            >
-              <Send className="h-4 w-4" aria-hidden />
-              <span className="hidden sm:inline">Send</span>
-            </button>
+            ) : null}
+            <div ref={bottomRef} />
           </div>
-        </form>
+
+          <form
+            onSubmit={handleSend}
+            className="shrink-0 border-t border-border/70 bg-background py-2.5 sm:py-3"
+          >
+            <div className="flex gap-2 rounded-2xl border border-border/70 bg-card/95 p-1.5 transition focus-within:border-border focus-within:ring-2 focus-within:ring-ring/20">
+              <label htmlFor="chat-input" className="sr-only">
+                Message
+              </label>
+              <input
+                id="chat-input"
+                type="text"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder={recording ? "Listening..." : "Message the assistant..."}
+                autoComplete="off"
+                className="min-h-11 flex-1 rounded-xl border-0 bg-transparent px-2.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:ring-0 sm:px-3"
+              />
+              <button
+                type="button"
+                onClick={() => (recording ? stopVoice() : startVoice())}
+                disabled={sending}
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border/70 bg-background text-foreground transition hover:bg-muted/30 disabled:pointer-events-none disabled:opacity-40"
+                title={recording ? "Stop voice" : "Start voice"}
+              >
+                {recording ? (
+                  <MicOff className="h-4 w-4" aria-hidden />
+                ) : (
+                  <Mic className="h-4 w-4" aria-hidden />
+                )}
+              </button>
+              <button
+                type="submit"
+                disabled={!draft.trim() || sending}
+                className="inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-border/70 bg-foreground px-4 text-sm font-medium text-background transition hover:opacity-95 disabled:pointer-events-none disabled:opacity-40"
+              >
+                <Send className="h-4 w-4" aria-hidden />
+                <span className="hidden sm:inline">Send</span>
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
