@@ -1,4 +1,4 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthProvider";
 import { useAuth } from "./context/useAuth";
 import Home from "./pages/Home";
@@ -10,17 +10,17 @@ import PassengerSignInPage from "./pages/PassengerSignInPage";
 import StaffAuthPage from "./pages/StaffAuthPage";
 import StaffDashboard from "./pages/StaffDashboard";
 
-function StaffRoute({ children }) {
+function StaffRoute() {
   const { user } = useAuth();
   if (!user) return <Navigate to="/staff/auth" replace />;
   if (user.role !== "staff") return <Navigate to="/passenger/chat" replace />;
-  return children;
+  return <Outlet />;
 }
 
 function PassengerRoute({ children }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/passenger/sign-in" replace />;
-  if (user.role !== "passenger") return <Navigate to="/staff" replace />;
+  if (user.role !== "passenger") return <Navigate to="/staff/dashboard" replace />;
   return children;
 }
 
@@ -57,14 +57,10 @@ export default function App() {
             path="/auth"
             element={<Navigate to="/" replace />}
           />
-          <Route
-            path="/staff"
-            element={
-              <StaffRoute>
-                <StaffDashboard />
-              </StaffRoute>
-            }
-          />
+          <Route path="/staff" element={<StaffRoute />}>
+            <Route index element={<Navigate to="/staff/dashboard" replace />} />
+            <Route path=":section" element={<StaffDashboard />} />
+          </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>
