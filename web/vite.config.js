@@ -18,11 +18,12 @@ export default defineConfig({
     ],
     proxy: {
       // API gateway (auth + found-items + media uploads init)
-      "/staff": {
+      "/gateway": {
         target: process.env.VITE_API_BASE_URL || "http://localhost:8081",
+        rewrite: (path) => path.replace(/^\/gateway/, ""),
         changeOrigin: true,
       },
-      "/passenger": {
+      "/staff": {
         target: process.env.VITE_API_BASE_URL || "http://localhost:8081",
         changeOrigin: true,
       },

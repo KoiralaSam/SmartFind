@@ -59,18 +59,17 @@ def get_bq_client() -> bigquery.Client:
             raise RuntimeError("ANALYTICS_GOOGLE_SERVICE_ACCOUNT_JSON environment variable is not set")
         credentials = service_account.Credentials.from_service_account_info(
             _sa_info,
-            scopes=["https://www.googleapis.com/auth/bigquery.readonly"],
+            scopes=["https://www.googleapis.com/auth/bigquery"],
         )
         _bq_client = bigquery.Client(project=BQ_PROJECT, credentials=credentials)
     return _bq_client
 
 
 def _table(name: str) -> str:
-    # Returns fully-qualified BigQuery table reference
     return f"`{BQ_PROJECT}.{BQ_DATASET}.{name}`"
 
 
-# PostgreSQL helpers (used only for storing / reading reports)
+# PostgreSQL helpers
 
 @contextmanager
 def get_conn():
@@ -104,6 +103,87 @@ def _parse_json(text: str) -> dict:
     return json.loads(text)
 
 
+# PostgreSQL → BigQuery sync
+
+_LOST_REPORTS_SCHEMA = [
+    bigquery.SchemaField("id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("route_id", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("route_or_station", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("category", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("status", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("created_at", "TIMESTAMP", mode="REQUIRED"),
+]
+
+_ROUTES_SCHEMA = [
+    bigquery.SchemaField("id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("route_name", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("created_at", "TIMESTAMP", mode="REQUIRED"),
+]
+
+
+def sync_to_bigquery() -> None:
+    """
+    Sync lost_reports and routes from PostgreSQL to BigQuery (full replace).
+    Analytics is based on passenger lost reports only — not staff found items.
+    """
+    bq = get_bq_client()
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id::text, route_id::text, route_or_station,
+                       category, status::text, created_at
+                FROM lost_reports
+                """
+            )
+            lr_rows = [
+                {
+                    "id": r["id"],
+                    "route_id": r["route_id"],
+                    "route_or_station": r["route_or_station"],
+                    "category": r["category"],
+                    "status": r["status"],
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                }
+                for r in cur.fetchall()
+            ]
+
+            cur.execute("SELECT id::text, route_name, created_at FROM routes")
+            routes_rows = [
+                {
+                    "id": r["id"],
+                    "route_name": r["route_name"],
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                }
+                for r in cur.fetchall()
+            ]
+
+    lr_job = bq.load_table_from_json(
+        lr_rows,
+        f"{BQ_PROJECT}.{BQ_DATASET}.lost_reports",
+        job_config=bigquery.LoadJobConfig(
+            schema=_LOST_REPORTS_SCHEMA,
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        ),
+    )
+    lr_job.result()
+
+    routes_job = bq.load_table_from_json(
+        routes_rows,
+        f"{BQ_PROJECT}.{BQ_DATASET}.routes",
+        job_config=bigquery.LoadJobConfig(
+            schema=_ROUTES_SCHEMA,
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        ),
+    )
+    routes_job.result()
+
+    logger.info(
+        f"Synced to BigQuery: {len(lr_rows)} lost_reports, {len(routes_rows)} routes"
+    )
+
+
 # BigQuery data fetches
 
 def fetch_route_statistics(days_back: int) -> dict:
@@ -119,7 +199,7 @@ def fetch_route_statistics(days_back: int) -> dict:
     query = f"""
         SELECT
             COALESCE(r.route_name, lr.route_or_station, 'Unknown') AS location,
-            CAST(r.id AS STRING)                                    AS route_id,
+            lr.route_id                                             AS route_id,
             COUNT(lr.id)                                            AS incident_count,
             COUNTIF(lr.status = 'open')                            AS open_count,
             COUNTIF(lr.status = 'matched')                         AS matched_count,
@@ -287,7 +367,7 @@ You have been given three data sources queried from BigQuery:
 2. temporal_stats: time-based patterns (day-of-week, month, hour)
 3. category_stats: item categories most reported lost at each location
 
-Your task: produce a structured JSON hotspot report.
+Your task: produce a structured JSON hotspot report WITH actionable staff recommendations.
 
 Rules:
 - risk_score: float 0.0–10.0 (higher = more risk)
@@ -295,6 +375,10 @@ Rules:
 - trend: "increasing", "stable", or "decreasing" (infer from data; default "stable" if unclear)
 - Include up to 10 hotspots ranked by risk_score
 - If total_incidents is 0, return an empty hotspots list with summary "No incidents recorded yet"
+- For each hotspot recommendation: give specific, actionable advice for transit staff
+  (e.g. deploy additional staff during peak hours, install lost item collection boxes,
+  add signage, increase platform surveillance, run passenger awareness campaigns)
+- For overall recommendations: include staffing strategies, patrol schedules, and prevention measures
 
 Return ONLY valid JSON in this exact format:
 {
@@ -312,7 +396,7 @@ Return ONLY valid JSON in this exact format:
       "risk_level": "<low|medium|high|critical>",
       "trend": "<increasing|stable|decreasing>",
       "top_categories": ["<category>", ...],
-      "recommendation": "<one actionable sentence>"
+      "recommendation": "<specific actionable staff instruction>"
     }
   ],
   "temporal_insights": {
@@ -321,8 +405,9 @@ Return ONLY valid JSON in this exact format:
     "busiest_month": "<YYYY-MM or null>"
   },
   "recommendations": [
-    "<overall recommendation 1>",
-    "<overall recommendation 2>"
+    "<staff deployment or operational recommendation 1>",
+    "<staff deployment or operational recommendation 2>",
+    "<prevention or passenger awareness recommendation 3>"
   ]
 }"""
 
@@ -348,7 +433,10 @@ Return ONLY valid JSON in this exact format:
 # Analytics runner
 
 def run_analytics() -> dict:
-    """Fetch data from BigQuery, then use Groq to generate the hotspot report."""
+    """Sync PostgreSQL → BigQuery, then use Groq to generate the hotspot report."""
+    logger.info("Syncing PostgreSQL data to BigQuery")
+    sync_to_bigquery()
+
     logger.info("Fetching route statistics from BigQuery")
     route_stats = fetch_route_statistics(90)
 
@@ -454,8 +542,8 @@ def run_analytics_endpoint(req: RunAnalyticsRequest):
     """
     Trigger the analytics agent manually.
 
-    Queries BigQuery for historical data, uses Groq to generate the hotspot report,
-    and persists the result to PostgreSQL.
+    Syncs PostgreSQL data to BigQuery, queries BigQuery for historical patterns,
+    uses Groq to generate the hotspot report, and persists the result to PostgreSQL.
     """
     if not os.environ.get("GROQ_API_KEY"):
         raise HTTPException(status_code=500, detail="GROQ_API_KEY not configured")
@@ -496,10 +584,10 @@ def run_analytics_endpoint(req: RunAnalyticsRequest):
 
 
 @app.get("/analytics/heatmap")
-def get_heatmap(days: int = 7):
+def get_heatmap(days: int = 90):
     """
     Return heatmap data from the latest stored hotspot report.
-    Falls back to a live BigQuery query if no report is stored yet.
+    Falls back to a live PostgreSQL query if no report is stored yet.
     """
     row = None
     try:
@@ -516,7 +604,6 @@ def get_heatmap(days: int = 7):
                 )
                 row = cur.fetchone()
     except Exception as e:
-        # Table may not exist yet (migration pending) — fall through to live query
         logger.warning(f"Could not query hotspot_reports (migration pending?): {e}")
 
     if row is not None:
@@ -532,11 +619,11 @@ def get_heatmap(days: int = 7):
             "recommendations": row["ai_recommendations"],
         }
 
-    # No stored report — live BigQuery aggregation
+    # No stored report — live PostgreSQL aggregation (fast, no BigQuery sync needed)
     try:
-        live = fetch_route_statistics(days)
+        live = _fetch_route_stats_postgres(days)
     except Exception as e:
-        logger.warning(f"Live BigQuery query failed: {e}")
+        logger.warning(f"Live PostgreSQL query failed: {e}")
         return {
             "source": "unavailable",
             "message": "No incidents recorded yet. The heatmap will populate as data arrives.",
@@ -560,11 +647,60 @@ def get_heatmap(days: int = 7):
     }
 
 
+def _fetch_route_stats_postgres(days_back: int) -> dict:
+    """
+    Direct PostgreSQL query used only for the live heatmap fallback.
+    Uses passenger lost_reports only — found_items are not loss hotspot indicators.
+    """
+    since = datetime.now() - timedelta(days=days_back)
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    COALESCE(r.route_name, lr.route_or_station, 'Unknown') AS location,
+                    lr.route_id::text                                        AS route_id,
+                    COUNT(lr.id)                                             AS incident_count,
+                    COUNT(lr.id) FILTER (WHERE lr.status = 'open')          AS open_count,
+                    COUNT(lr.id) FILTER (WHERE lr.status = 'matched')       AS matched_count,
+                    MAX(lr.created_at)                                       AS last_incident
+                FROM lost_reports lr
+                LEFT JOIN routes r ON r.id = lr.route_id
+                GROUP BY location, lr.route_id
+                ORDER BY incident_count DESC
+                LIMIT 20
+                """
+            )
+            rows = cur.fetchall()
+
+            cur.execute("SELECT COUNT(*) AS n FROM lost_reports")
+            total_row = cur.fetchone()
+            total = total_row["n"] if total_row else 0
+
+    return {
+        "period_days": days_back,
+        "since": since.isoformat(),
+        "total_incidents": total,
+        "locations": [
+            {
+                "location": r["location"],
+                "route_id": r["route_id"],
+                "incident_count": r["incident_count"],
+                "open_count": r["open_count"],
+                "matched_count": r["matched_count"],
+                "last_incident": r["last_incident"],
+            }
+            for r in rows
+        ],
+    }
+
+
 @app.get("/analytics/hotspots")
 def get_hotspots(top: int = 10):
     """
     Return the top N high-risk routes/stations from the latest stored report.
-    Falls back to a live BigQuery aggregation if no report exists.
+    Falls back to a live PostgreSQL aggregation if no report exists.
     """
     row = None
     try:
@@ -580,14 +716,13 @@ def get_hotspots(top: int = 10):
                 )
                 row = cur.fetchone()
     except Exception as e:
-        # Table may not exist yet — fall through to live query
         logger.warning(f"Could not query hotspot_reports (migration pending?): {e}")
 
     if row is None:
         try:
-            live = fetch_route_statistics(30)
+            live = _fetch_route_stats_postgres(30)
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"No stored report and live BigQuery query failed: {e}")
+            raise HTTPException(status_code=500, detail=f"No stored report and live query failed: {e}")
 
         locations = live.get("locations", [])[:top]
         if not locations:
