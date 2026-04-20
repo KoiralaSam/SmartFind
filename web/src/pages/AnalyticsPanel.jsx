@@ -60,11 +60,21 @@ function computeRiskLevel(count, max) {
   return "low";
 }
 
+
 // ─── Geocode via Nominatim ───────────────────────────────────────
+// If name is a route like "Monroe → Ruston" or "Monroe - Ruston",
+// extract only the first segment (origin station/city).
+function extractPrimaryLocation(name) {
+  // Split on arrow variants and " - " (dash with spaces)
+  const parts = name.split(/\s*(?:->|→|–|—|\bto\b)\s*/i);
+  return (parts[0] || name).trim();
+}
+
 async function geocode(name) {
+  const query = extractPrimaryLocation(name);
   try {
     const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(name + ", USA")}&format=json&limit=1&countrycodes=us`,
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + ", USA")}&format=json&limit=1&countrycodes=us`,
       { headers: { "User-Agent": "SmartFind-LostFound/1.0" } }
     );
     const data = await res.json();
@@ -108,23 +118,18 @@ function fmt(dateStr) {
 }
 
 // ─── Stat Card ──────────────────────────────────────────────────
-function StatCard({ icon: Icon, label, value, accent, sub }) {
+function StatCard({ icon: Icon, label, value, accent }) {
   return (
-    <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-      <div className="flex items-start gap-3">
+    <div className="rounded-2xl border border-border bg-card p-3 shadow-sm">
+      <div className="flex items-start gap-2.5">
         <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${accent}`}
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${accent}`}
         >
-          <Icon className="h-5 w-5" />
+          <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-2xl font-semibold tracking-tight">{value}</p>
+          <p className="text-xl font-semibold tracking-tight">{value}</p>
           <p className="text-xs text-muted-foreground">{label}</p>
-          {sub && (
-            <p className="mt-0.5 truncate text-[11px] text-muted-foreground/60">
-              {sub}
-            </p>
-          )}
         </div>
       </div>
     </div>
@@ -189,23 +194,21 @@ export default function AnalyticsPanel() {
   }, [data]);
 
   const isAI = data?.source === "stored_report";
-  const hotspots = data?.hotspots ?? data?.locations ?? [];
+  const rawHotspots = data?.hotspots ?? data?.locations ?? [];
   const totalIncidents =
     data?.total_incidents_analyzed ?? data?.total_incidents ?? 0;
-  const maxCount = hotspots.reduce(
+  const maxCount = rawHotspots.reduce(
     (m, h) => Math.max(m, h.incident_count ?? h.total_incidents ?? 0),
     0
   );
+  const hotspots = rawHotspots;
+  const overallRecs = data?.recommendations ?? [];
   const criticalCount = hotspots.filter((h) => {
-    const lvl = isAI
-      ? h.risk_level
-      : computeRiskLevel(h.incident_count ?? h.total_incidents, maxCount);
+    const lvl = computeRiskLevel(h.incident_count ?? h.total_incidents ?? 0, maxCount);
     return lvl === "critical";
   }).length;
   const highRiskCount = hotspots.filter((h) => {
-    const lvl = isAI
-      ? h.risk_level
-      : computeRiskLevel(h.incident_count ?? h.total_incidents, maxCount);
+    const lvl = computeRiskLevel(h.incident_count ?? h.total_incidents ?? 0, maxCount);
     return lvl === "critical" || lvl === "high";
   }).length;
 
@@ -291,7 +294,6 @@ export default function AnalyticsPanel() {
           label="Last Updated"
           value={data?.generated_at ? fmt(data.generated_at) : "Live"}
           accent="bg-muted text-muted-foreground"
-          sub={data?.report_date ? `Report: ${data.report_date}` : undefined}
         />
       </div>
 
@@ -338,7 +340,7 @@ export default function AnalyticsPanel() {
           {mapped.map(({ hotspot: h, coords, isAI: ai }, i) => {
             if (!coords) return null;
             const count = h.incident_count ?? h.total_incidents ?? 0;
-            const lvl = ai ? h.risk_level : computeRiskLevel(count, maxCount);
+            const lvl = computeRiskLevel(count, maxCount);
             const risk = RISK[lvl] || RISK.low;
 
             return (
@@ -354,9 +356,9 @@ export default function AnalyticsPanel() {
                 }}
               >
                 <Tooltip direction="top" offset={[0, -risk.radius]} opacity={1}>
-                  <div className="min-w-[160px] space-y-1 text-xs">
-                    <p className="font-semibold">{h.location}</p>
-                    <p>{count} lost report{count !== 1 ? "s" : ""}</p>
+                  <div className="max-w-[220px] space-y-1 text-xs" style={{ whiteSpace: "normal", wordBreak: "break-word" }}>
+                    <p className="font-semibold leading-tight">{h.location}</p>
+                    <p>{count} found item{count !== 1 ? "s" : ""}</p>
                     {h.open_count != null && (
                       <p className="text-muted-foreground">{h.open_count} open</p>
                     )}
@@ -373,8 +375,12 @@ export default function AnalyticsPanel() {
                     >
                       {risk.label}
                     </span>
-                    {ai && h.recommendation && (
-                      <p className="mt-1 italic text-gray-600">{h.recommendation}</p>
+                    {h.recommendation && (
+                      <p className="mt-1 italic text-gray-600 leading-snug">
+                        {h.recommendation.length > 100
+                          ? h.recommendation.slice(0, 100) + "…"
+                          : h.recommendation}
+                      </p>
                     )}
                   </div>
                 </Tooltip>
@@ -393,20 +399,75 @@ export default function AnalyticsPanel() {
         </p>
       )}
 
-      {/* ── Insights row — 3 cols ── */}
-      <div className="grid gap-4 md:grid-cols-3">
-        {/* AI summary */}
-        {data?.summary && (
-          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              AI Summary
-            </p>
-            <p className="mt-3 text-sm leading-relaxed text-foreground/80">
-              {data.summary}
-            </p>
-          </div>
-        )}
+      {/* ── Per-route staff suggestions ── */}
+      {(() => {
+        const withRec = hotspots.filter((h) => h.recommendation);
+        if (!withRec.length && !overallRecs.length) return null;
+        return (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-5 shadow-sm">
+            <div className="flex items-center gap-2 mb-4">
+              <Lightbulb className="h-4 w-4 text-amber-500" />
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
+                Staff Recommendations
+              </p>
+            </div>
 
+            {/* per-route rows */}
+            {withRec.length > 0 && (
+              <div className="space-y-2 mb-4">
+                {withRec.map((h, i) => {
+                  const count = h.incident_count ?? h.total_incidents ?? 0;
+                  const lvl = isAI ? h.risk_level : computeRiskLevel(count, maxCount);
+                  const risk = RISK[lvl] || RISK.low;
+                  return (
+                    <div
+                      key={h.location + i}
+                      className="flex items-start gap-3 rounded-xl bg-white/70 px-4 py-3 text-xs shadow-sm"
+                    >
+                      <span
+                        className="mt-0.5 flex h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ background: risk.fill }}
+                      />
+                      <div className="min-w-0">
+                        <span className="font-semibold text-foreground/80">
+                          {h.location}
+                        </span>
+                        <span className="mx-1.5 text-muted-foreground/40">·</span>
+                        <span className="text-amber-900/70">{h.recommendation}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* overall recommendations */}
+            {overallRecs.length > 0 && (
+              <>
+                <p className="mb-2 text-[11px] font-medium uppercase tracking-widest text-amber-600/70">
+                  Overall Actions
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  {overallRecs.map((rec, i) => (
+                    <div
+                      key={i}
+                      className="flex items-start gap-2.5 rounded-xl bg-white/60 px-4 py-3 text-xs shadow-sm"
+                    >
+                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-400 text-[9px] font-bold text-white">
+                        {i + 1}
+                      </span>
+                      <span className="text-amber-900/80">{rec}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Insights row ── */}
+      <div className="grid gap-4 md:grid-cols-2">
         {/* Temporal insights */}
         {data?.temporal_insights && (
           <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
@@ -437,27 +498,6 @@ export default function AnalyticsPanel() {
           </div>
         )}
 
-        {/* Staff recommendations */}
-        {data?.recommendations?.length > 0 && (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-5 shadow-sm">
-            <div className="flex items-center gap-2">
-              <Lightbulb className="h-4 w-4 text-amber-500" />
-              <p className="text-xs font-medium uppercase tracking-[0.18em] text-amber-700">
-                Staff Action Plan
-              </p>
-            </div>
-            <ul className="mt-4 space-y-3">
-              {data.recommendations.map((rec, i) => (
-                <li key={i} className="flex items-start gap-2.5 text-xs leading-relaxed">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-400 text-[9px] font-bold text-white">
-                    {i + 1}
-                  </span>
-                  <span className="text-amber-900/80">{rec}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </div>
     </div>
   );
