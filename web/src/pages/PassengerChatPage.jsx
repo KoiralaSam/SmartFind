@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, CheckCircle2, ImageIcon, Loader2, LogOut, Send, Sparkles } from "lucide-react";
+import { Bot, CheckCircle2, ImageIcon, Loader2, LogOut, Mic, MicOff, Send, Sparkles } from "lucide-react";
 import { AccountAvatar } from "../components/AccountAvatar";
 import { useAuth } from "../context/useAuth";
 
@@ -66,6 +66,16 @@ function formatBackendResult(action, data) {
     case "file_claim":
       return `✅ Your claim has been filed!\n\nClaim ID: ${data.id || "—"}\nStatus: ${data.status || "pending"}`;
 
+    case "list_my_claims": {
+      const claims = data.claims || [];
+      if (claims.length === 0) return "You have no claims on file.";
+      const lines = claims.map(
+        (c, i) =>
+          `${i + 1}. ${c.status || "pending"} — Claim ${c.id} (Found item: ${c.item_id}${c.lost_report_id ? `, Lost report: ${c.lost_report_id}` : ""})`,
+      );
+      return `Here are your claims:\n\n${lines.join("\n")}`;
+    }
+
     default:
       return "Done.";
   }
@@ -83,13 +93,25 @@ export default function PassengerChatPage() {
   ]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [recording, setRecording] = useState(false);
   const bottomRef = useRef(null);
+  const messagesRef = useRef([]);
   const seenNotificationIdsRef = useRef(new Set());
   const pendingNotificationIdsRef = useRef(new Set());
+  const mediaRecorderRef = useRef(null);
+  const voiceSocketRef = useRef(null);
+  const lastInterimRef = useRef("");
+  const voiceEnabledRef = useRef(false);
+  const activeAudioRef = useRef(null);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     seenNotificationIdsRef.current.clear();
     pendingNotificationIdsRef.current.clear();
+    voiceEnabledRef.current = false;
   }, [user?.id]);
 
   useEffect(() => {
@@ -215,8 +237,10 @@ export default function PassengerChatPage() {
   }
 
   function buildConversationWithNextUserMessage(nextUserText) {
-    return messages
-      .filter((msg) => msg.id !== "welcome")
+    const snapshot = Array.isArray(messagesRef.current) ? messagesRef.current : [];
+    // Keep context bounded to avoid sending unbounded history.
+    const tail = snapshot.slice(-40);
+    return tail
       .map((msg) => ({ role: msg.role, content: msg.content }))
       .concat([{ role: "user", content: nextUserText }]);
   }
@@ -260,6 +284,28 @@ export default function PassengerChatPage() {
                 claimedId: "",
               },
             };
+          } else if (data.action === "check_my_lost_item") {
+            const foundMatches = data.grpc_data?.matches || [];
+            const lostReportId = data.grpc_data?.lost_report_id || "";
+            const hasReport = Boolean(lostReportId);
+            assistantMessage = {
+              ...assistantMessage,
+              content: hasReport
+                ? foundMatches.length > 0
+                  ? "I checked your most recent report and found potential matches. Select the closest one to file a claim."
+                  : "I checked your most recent report — no matching found items yet. We’ll keep looking!"
+                : "I couldn’t find an existing open lost report for you. If you lost something recently, tell me what it was and I’ll file a report.",
+              ...(hasReport
+                ? {
+                    matchCards: {
+                      matches: foundMatches,
+                      lostReportId,
+                      claimingId: "",
+                      claimedId: "",
+                    },
+                  }
+                : {}),
+            };
           } else if (data.action === "create_lost_report") {
             const createdReport = data.grpc_data?.report || null;
             const foundMatches = data.grpc_data?.matches || [];
@@ -269,7 +315,7 @@ export default function PassengerChatPage() {
                 content:
                   foundMatches.length > 0
                     ? "✅ Report filed. We also found potential matches — select the closest one to file a claim."
-                    : assistantMessage.content,
+                    : "✅ Report filed. No matching found items yet — we’ll keep looking!",
                 matchCards: {
                   matches: foundMatches,
                   lostReportId: createdReport.id,
@@ -287,11 +333,77 @@ export default function PassengerChatPage() {
             assistantMessage.content = formatBackendResult(data.action, data.grpc_data);
           }
         } else {
-          assistantMessage.content += `\n\n⚠️ Backend error: ${data.grpc_error || "Unknown error"}`;
+          console.warn("Backend action failed:", data.action, data.grpc_error);
+          assistantMessage.content =
+            "I couldn’t complete that request right now. Please try again in a moment.";
         }
       }
 
       setMessages((m) => [...m, assistantMessage]);
+
+      // If voice mode is enabled, speak the assistant reply via Deepgram TTS.
+      if (voiceEnabledRef.current && assistantMessage?.content) {
+        const messageId = assistantMessage.id;
+        try {
+          const ttsRes = await fetch(`${CHAT_BASE_URL}/tts`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: assistantMessage.content }),
+          });
+          const ttsPayload = await ttsRes.json().catch(() => null);
+          if (ttsRes.ok && ttsPayload?.audio_base64) {
+            const mime = ttsPayload?.mime || "audio/mpeg";
+            const b64 = String(ttsPayload.audio_base64);
+            const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+            const blob = new Blob([bytes], { type: mime });
+            const url = URL.createObjectURL(blob);
+
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === messageId ? { ...msg, audioUrl: url } : msg,
+              ),
+            );
+
+            // Pause mic capture while the agent is speaking to reduce feedback loops.
+            const recorder = mediaRecorderRef.current;
+            if (recording && recorder?.state === "recording" && recorder.pause) {
+              try {
+                recorder.pause();
+              } catch {
+                // ignore
+              }
+            }
+
+            const audio = new Audio(url);
+            activeAudioRef.current = audio;
+            audio.onended = () => {
+              if (recording && recorder?.state === "paused" && recorder.resume) {
+                try {
+                  recorder.resume();
+                } catch {
+                  // ignore
+                }
+              }
+            };
+            audio.onerror = () => {
+              if (recording && recorder?.state === "paused" && recorder.resume) {
+                try {
+                  recorder.resume();
+                } catch {
+                  // ignore
+                }
+              }
+            };
+            try {
+              await audio.play();
+            } catch {
+              // Autoplay may be blocked on some browsers. Audio controls are still shown.
+            }
+          }
+        } catch {
+          // ignore TTS failures
+        }
+      }
     } catch (error) {
       console.error("Chat error:", error);
       setMessages((m) => [
@@ -310,6 +422,152 @@ export default function PassengerChatPage() {
   function handleSend(e) {
     e.preventDefault();
     void sendChatText(draft);
+  }
+
+  function wsBase() {
+    const proto = window.location.protocol === "https:" ? "wss" : "ws";
+    return `${proto}://${window.location.host}`;
+  }
+
+  async function startVoice() {
+    if (recording) return;
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      setMessages((m) => [
+        ...m,
+        {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: "Voice input isn’t supported in this browser. Please type your message instead.",
+        },
+      ]);
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const socket = new WebSocket(`${wsBase()}${CHAT_BASE_URL}/voice`);
+      socket.binaryType = "arraybuffer";
+      voiceSocketRef.current = socket;
+      lastInterimRef.current = "";
+
+      socket.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data);
+          if (msg?.type === "transcript") {
+            const t = String(msg?.text || "");
+            lastInterimRef.current = t;
+            setDraft(t);
+            return;
+          }
+          if (msg?.type === "final") {
+            const t = String(msg?.text || "").trim();
+            setDraft("");
+            if (t) void sendChatText(t);
+            return;
+          }
+          if (msg?.type === "error") {
+            console.warn("Voice error:", msg?.reason || "unknown");
+            setRecording(false);
+            voiceEnabledRef.current = false;
+            setDraft("");
+            setMessages((m) => [
+              ...m,
+              {
+                id: `a-${Date.now()}`,
+                role: "assistant",
+                content:
+                  "I couldn’t use voice input right now. Please try again or type your message.",
+              },
+            ]);
+          }
+        } catch {
+          // ignore
+        }
+      };
+
+      socket.onopen = () => {
+        const preferredTypes = [
+          "audio/webm;codecs=opus",
+          "audio/webm",
+          "audio/mp4",
+        ];
+        const mimeType = preferredTypes.find((t) =>
+          window.MediaRecorder?.isTypeSupported?.(t),
+        );
+
+        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+        mediaRecorderRef.current = recorder;
+        recorder.ondataavailable = async (e) => {
+          if (!e?.data || e.data.size === 0) return;
+          const s = voiceSocketRef.current;
+          if (!s || s.readyState !== WebSocket.OPEN) return;
+          const buf = await e.data.arrayBuffer();
+          s.send(buf);
+        };
+        recorder.onstop = () => {
+          stream.getTracks().forEach((t) => t.stop());
+        };
+        recorder.start(250);
+        setRecording(true);
+        voiceEnabledRef.current = true;
+      };
+
+      socket.onerror = () => {
+        setRecording(false);
+        setDraft("");
+        try {
+          stream.getTracks().forEach((t) => t.stop());
+        } catch {
+          // ignore
+        }
+        setMessages((m) => [
+          ...m,
+          {
+            id: `a-${Date.now()}`,
+            role: "assistant",
+            content:
+              "I couldn’t start voice input. Please try again or type your message.",
+          },
+        ]);
+      };
+    } catch (e) {
+      setMessages((m) => [
+        ...m,
+        {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content:
+            "Could not access your microphone. Please allow microphone permission or use typing.",
+        },
+      ]);
+    }
+  }
+
+  function stopVoice() {
+    if (!recording) return;
+    setRecording(false);
+    voiceEnabledRef.current = false;
+    try {
+      activeAudioRef.current?.pause?.();
+    } catch {
+      // ignore
+    }
+    activeAudioRef.current = null;
+    const socket = voiceSocketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send("__STOP__");
+      try {
+        socket.close();
+      } catch {
+        // ignore
+      }
+    }
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+    }
+    mediaRecorderRef.current = null;
+    voiceSocketRef.current = null;
   }
 
   async function handleClaimFromMatch(messageId, match) {
@@ -343,7 +601,9 @@ export default function PassengerChatPage() {
         if (data.grpc_ok) {
           replyContent = formatBackendResult(data.action, data.grpc_data);
         } else {
-          replyContent += `\n\n⚠️ Backend error: ${data.grpc_error || "Unknown error"}`;
+          console.warn("Backend action failed:", data.action, data.grpc_error);
+          replyContent =
+            "I couldn’t file your claim right now. Please try again in a moment.";
         }
       }
 
@@ -453,6 +713,16 @@ export default function PassengerChatPage() {
                 }`}
               >
                 <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                {msg.role === "assistant" && msg.audioUrl ? (
+                  <div className="mt-3">
+                    <audio
+                      src={msg.audioUrl}
+                      controls
+                      autoPlay={recording}
+                      className="w-full"
+                    />
+                  </div>
+                ) : null}
                 {msg.role === "assistant" && msg.matchCards?.matches?.length > 0 ? (
                   <div className="mt-3 space-y-2.5">
                     {msg.matchCards.matches.map((match) => {
@@ -555,10 +825,23 @@ export default function PassengerChatPage() {
               type="text"
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Message the assistant…"
+              placeholder={recording ? "Listening…" : "Message the assistant…"}
               autoComplete="off"
               className="min-h-11 flex-1 rounded-xl border-0 bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground focus:ring-0"
             />
+            <button
+              type="button"
+              onClick={() => (recording ? stopVoice() : startVoice())}
+              disabled={sending}
+              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-border bg-background text-foreground transition hover:bg-muted/40 disabled:pointer-events-none disabled:opacity-40"
+              title={recording ? "Stop voice" : "Start voice"}
+            >
+              {recording ? (
+                <MicOff className="h-4 w-4" aria-hidden />
+              ) : (
+                <Mic className="h-4 w-4" aria-hidden />
+              )}
+            </button>
             <button
               type="submit"
               disabled={!draft.trim() || sending}

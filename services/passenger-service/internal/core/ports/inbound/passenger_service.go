@@ -120,6 +120,13 @@ type MarkNotificationReadInput struct {
 	NotificationIDs []string
 }
 
+type ListMyClaimsInput struct {
+	PassengerID string
+	Status      string
+	Limit       int
+	Offset      int
+}
+
 // LoginInput is the Google Sign-In credential. The service verifies the ID token and upserts the passenger.
 type LoginInput struct {
 	IDToken string
@@ -142,4 +149,5 @@ type PassengerUsecase interface {
 	FileClaim(ctx context.Context, in FileClaimInput) (*ItemClaim, error)
 	ListNotifications(ctx context.Context, in ListNotificationsInput) ([]PassengerMatchNotification, error)
 	MarkNotificationRead(ctx context.Context, in MarkNotificationReadInput) error
+	ListMyClaims(ctx context.Context, in ListMyClaimsInput) ([]ItemClaim, error)
 }

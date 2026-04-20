@@ -212,6 +212,29 @@ func (h *Handler) FileClaim(ctx context.Context, req *pb.FileClaimRequest) (*pb.
 	return mapper.ItemClaimToPB(claim), nil
 }
 
+func (h *Handler) ListMyClaims(ctx context.Context, req *pb.ListMyClaimsRequest) (*pb.ListMyClaimsResponse, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	claims, err := requirePassengerClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	in := inbound.ListMyClaimsInput{
+		PassengerID: claims.PassengerID,
+		Status:      req.GetStatus(),
+		Limit:       int(req.GetLimit()),
+		Offset:      int(req.GetOffset()),
+	}
+
+	items, err := h.usecase.ListMyClaims(ctx, in)
+	if err != nil {
+		return nil, mapDomainError(err)
+	}
+	return &pb.ListMyClaimsResponse{Claims: mapper.ItemClaimsToPB(items)}, nil
+}
+
 func (h *Handler) ListNotifications(ctx context.Context, req *pb.ListNotificationsRequest) (*pb.ListNotificationsResponse, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")

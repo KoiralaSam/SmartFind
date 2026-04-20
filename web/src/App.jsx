@@ -2,7 +2,10 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthProvider";
 import { useAuth } from "./context/useAuth";
 import Home from "./pages/Home";
+import PassengerLayout from "./pages/PassengerLayout";
 import PassengerChatPage from "./pages/PassengerChatPage";
+import PassengerClaimsPage from "./pages/PassengerClaimsPage";
+import PassengerReportsPage from "./pages/PassengerReportsPage";
 import PassengerSignInPage from "./pages/PassengerSignInPage";
 import StaffAuthPage from "./pages/StaffAuthPage";
 import StaffDashboard from "./pages/StaffDashboard";
@@ -38,13 +41,18 @@ export default function App() {
           />
           <Route path="/passenger/sign-in" element={<PassengerSignInPage />} />
           <Route
-            path="/passenger/chat"
+            path="/passenger"
             element={
               <PassengerRoute>
-                <PassengerChatPage />
+                <PassengerLayout />
               </PassengerRoute>
             }
-          />
+          >
+            <Route index element={<Navigate to="/passenger/chat" replace />} />
+            <Route path="chat" element={<PassengerChatPage />} />
+            <Route path="reports" element={<PassengerReportsPage />} />
+            <Route path="claims" element={<PassengerClaimsPage />} />
+          </Route>
           <Route
             path="/auth"
             element={<Navigate to="/" replace />}
@@ -57,18 +65,9 @@ export default function App() {
               </StaffRoute>
             }
           />
-          <Route
-            path="/passenger"
-            element={
-              <PassengerRoute>
-                <Navigate to="/passenger/chat" replace />
-              </PassengerRoute>
-            }
-          />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
   );
 }
-
