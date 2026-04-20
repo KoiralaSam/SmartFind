@@ -11,7 +11,7 @@ import (
 // ErrStaffEmailExists is returned when inserting a duplicate staff email.
 var ErrStaffEmailExists = errors.New("staff email already exists")
 
-// ErrNotFound is returned when a row is missing or not owned by the caller.
+// ErrNotFound is returned when a row is missing or the operation cannot complete.
 var ErrNotFound = errors.New("not found")
 
 // ErrRouteNameExists is returned when creating a duplicate route name.
@@ -33,6 +33,6 @@ type StaffRepository interface {
 	UpdateClaimStatusForStaffItem(ctx context.Context, claimID, staffID, status string) (*inbound.ItemClaim, error)
 
 	CreateRoute(ctx context.Context, staffID, routeName string) (*inbound.Route, error)
-	DeleteRouteIfOwner(ctx context.Context, staffID, routeID string) error
+	DeleteRoute(ctx context.Context, routeID string) error
 	ListRoutes(ctx context.Context, in inbound.ListRoutesInput) ([]inbound.Route, error)
 }
