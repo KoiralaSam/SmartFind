@@ -4,6 +4,7 @@
 // If you want to hit the gateway directly from the browser, set:
 //   VITE_API_GATEWAY_URL=http://localhost:8081
 const GATEWAY_BASE_URL = import.meta.env.VITE_API_GATEWAY_URL || "";
+const GATEWAY_PATH_PREFIX = GATEWAY_BASE_URL ? "" : "/gateway";
 const STORAGE_KEY = "smartfind-auth";
 
 function getSessionToken() {
@@ -20,18 +21,42 @@ function getSessionToken() {
 async function requestJSON(path, options) {
   const sessionToken = getSessionToken();
   const hasAuthHeader = Boolean(options?.headers?.Authorization);
-  const res = await fetch(`${GATEWAY_BASE_URL}${path}`, {
+  const isPassengerPath = String(path || "").startsWith("/passenger/");
+  const autoAuthHeader =
+    sessionToken && !hasAuthHeader && !isPassengerPath
+      ? { Authorization: `Bearer ${sessionToken}` }
+      : {};
+  const url = `${GATEWAY_BASE_URL}${GATEWAY_PATH_PREFIX}${path}`;
+  const requestOptions = {
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(sessionToken && !hasAuthHeader
-        ? { Authorization: `Bearer ${sessionToken}` }
-        : {}),
+      ...autoAuthHeader,
       ...(options?.headers || {}),
     },
     ...options,
-  });
-  const data = await res.json().catch(() => null);
+  };
+  let res = await fetch(url, requestOptions);
+  let data = await res.json().catch(() => null);
+
+  // If a stale token from session storage is sent, the gateway may reject it
+  // before considering the valid httpOnly session cookie. Retry once cookie-only.
+  if (
+    !res.ok &&
+    res.status === 401 &&
+    Object.keys(autoAuthHeader).length > 0 &&
+    String(data?.error || "")
+      .toLowerCase()
+      .includes("invalid forwarded token")
+  ) {
+    const retryHeaders = {
+      ...(options?.headers || {}),
+      "Content-Type": "application/json",
+    };
+    delete retryHeaders.Authorization;
+    res = await fetch(url, { ...requestOptions, headers: retryHeaders });
+    data = await res.json().catch(() => null);
+  }
   if (!res.ok) {
     const msg = data?.error || `Request failed (${res.status})`;
     throw new Error(msg);
@@ -105,6 +130,33 @@ export async function staffUpdateFoundItemStatus(body) {
     method: "PUT",
     body: JSON.stringify(body),
   });
+}
+
+/** Transit lines / routes (DB `routes` table). */
+export async function staffListTransitRoutes(params) {
+  const q = new URLSearchParams();
+  if (params?.createdByStaffId) {
+    q.set("created_by_staff_id", params.createdByStaffId);
+  }
+  if (params?.limit != null) q.set("limit", String(params.limit));
+  if (params?.offset != null) q.set("offset", String(params.offset));
+  const suffix = q.toString() ? `?${q.toString()}` : "";
+  return requestJSON(`/staff/routes${suffix}`, { method: "GET" });
+}
+
+export async function staffCreateTransitRoute({ staffId, routeName }) {
+  return requestJSON("/staff/routes", {
+    method: "POST",
+    body: JSON.stringify({ staff_id: staffId, route_name: routeName }),
+  });
+}
+
+export async function staffDeleteTransitRoute({ staffId, routeId }) {
+  const q = new URLSearchParams({
+    staff_id: String(staffId || "").trim(),
+    route_id: String(routeId || "").trim(),
+  });
+  return requestJSON(`/staff/routes?${q.toString()}`, { method: "DELETE" });
 }
 
 export async function mediaInitUploads(files) {

@@ -294,10 +294,10 @@ func (r *StaffRepository) CreateRoute(ctx context.Context, staffID, routeName st
 	return &rt, nil
 }
 
-func (r *StaffRepository) DeleteRouteIfOwner(ctx context.Context, staffID, routeID string) error {
+func (r *StaffRepository) DeleteRoute(ctx context.Context, routeID string) error {
 	tag, err := r.pool.Exec(ctx, `
-		DELETE FROM routes WHERE id = $1::uuid AND created_by_staff_id = $2::uuid
-	`, routeID, staffID)
+		DELETE FROM routes WHERE id = $1::uuid
+	`, routeID)
 	if err != nil {
 		return err
 	}
