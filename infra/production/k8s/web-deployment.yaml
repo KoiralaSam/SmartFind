@@ -79,10 +79,21 @@ metadata:
   name: web
   labels:
     app: web
+  annotations:
+    service.beta.kubernetes.io/do-loadbalancer-type: "REGIONAL"
+    service.beta.kubernetes.io/do-loadbalancer-certificate-name: "smartfind-samarpankoirala-tech"
+    service.beta.kubernetes.io/do-loadbalancer-http-ports: "80"
+    service.beta.kubernetes.io/do-loadbalancer-tls-ports: "443"
+    service.beta.kubernetes.io/do-loadbalancer-redirect-http-to-https: "true"
+    service.beta.kubernetes.io/do-loadbalancer-hostname: "smartfind.samarpankoirala.tech"
 spec:
   type: LoadBalancer
   ports:
     - port: 80
+      name: http
+      targetPort: http
+    - port: 443
+      name: https
       targetPort: http
   selector:
     app: web
