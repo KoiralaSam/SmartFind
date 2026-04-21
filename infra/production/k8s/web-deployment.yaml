@@ -46,6 +46,11 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: PUBLIC_DETAIL_EXTRACTER_URL
+            - name: ANALYTICS_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: ANALYTICS_URL
             - name: VITE_GOOGLE_CLIENT_ID
               valueFrom:
                 secretKeyRef:

@@ -45,6 +45,11 @@ spec:
                 configMapKeyRef:
                   key: DETAIL_EXTRACTER_SERVICE_ADDRESS
                   name: app-config
+            - name: CORS_ALLOWED_ORIGINS
+              valueFrom:
+                configMapKeyRef:
+                  key: CORS_ALLOWED_ORIGINS
+                  name: app-config
             - name: INTERNAL_SERVICE_SECRET
               valueFrom:
                 secretKeyRef:

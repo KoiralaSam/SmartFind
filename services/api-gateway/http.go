@@ -21,14 +21,38 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
+var corsAllowedOrigins = parseAllowedOrigins(
+	env.GetString("CORS_ALLOWED_ORIGINS", "http://localhost:5173"),
+)
+
+func parseAllowedOrigins(raw string) map[string]struct{} {
+	allowed := make(map[string]struct{})
+	for _, origin := range strings.Split(raw, ",") {
+		trimmed := strings.TrimSpace(origin)
+		if trimmed == "" {
+			continue
+		}
+		allowed[trimmed] = struct{}{}
+	}
+	return allowed
+}
+
 // corsMiddleware adds CORS headers to allow requests from the web frontend
 func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Allow requests from the Next.js frontend (localhost:5173)
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		origin := strings.TrimSpace(r.Header.Get("Origin"))
+		if origin != "" {
+			if _, ok := corsAllowedOrigins[origin]; ok {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+				w.Header().Set("Vary", "Origin")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+			} else if r.Method == http.MethodOptions {
+				http.Error(w, "origin not allowed", http.StatusForbidden)
+				return
+			}
+		}
 
 		// Handle preflight OPTIONS request
 		if r.Method == http.MethodOptions {

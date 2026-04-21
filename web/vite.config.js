@@ -43,6 +43,10 @@ export default defineConfig(({ mode }) => {
           rewrite: (path) => path.replace(/^\/api\/extract/, "/extract"),
           changeOrigin: true,
         },
+        "/analytics": {
+          target: env.ANALYTICS_URL || "http://localhost:8092",
+          changeOrigin: true,
+        },
         "/api": {
           target: env.CHAT_AGENT_URL || "http://localhost:8090",
           rewrite: (path) => path.replace(/^\/api/, ""),
