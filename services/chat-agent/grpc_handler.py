@@ -1,8 +1,10 @@
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 from zoneinfo import ZoneInfo
@@ -38,20 +40,53 @@ def _find_proto_py_passenger_dir() -> Path:
     )
 
 
+def _find_proto_py_staff_dir() -> Path:
+    env_override = (os.environ.get("PROTO_PY_STAFF_DIR") or "").strip()
+    if env_override:
+        p = Path(env_override).expanduser().resolve()
+        if (p / "staff_pb2.py").exists() and (p / "staff_pb2_grpc.py").exists():
+            return p
+
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parent / "shared" / "proto_py" / "staff",
+        Path.cwd() / "shared" / "proto_py" / "staff",
+    ]
+
+    for base in here.parents:
+        candidates.append(base / "shared" / "proto_py" / "staff")
+
+    for c in candidates:
+        if (c / "staff_pb2.py").exists() and (c / "staff_pb2_grpc.py").exists():
+            return c.resolve()
+
+    raise RuntimeError(
+        "Could not locate generated gRPC python files. "
+        "Expected shared/proto_py/staff/staff_pb2.py to exist. "
+        "Set PROTO_PY_STAFF_DIR to the folder containing staff_pb2.py."
+    )
+
+
 _PROTO_PY_PASSENGER_DIR = _find_proto_py_passenger_dir()
+_PROTO_PY_STAFF_DIR = _find_proto_py_staff_dir()
 
 # The generated modules use absolute imports like `import passenger_pb2`,
 # so we must ensure the generated folder is on sys.path.
 if str(_PROTO_PY_PASSENGER_DIR) not in sys.path:
     sys.path.insert(0, str(_PROTO_PY_PASSENGER_DIR))
+if str(_PROTO_PY_STAFF_DIR) not in sys.path:
+    sys.path.insert(0, str(_PROTO_PY_STAFF_DIR))
 
 _CENTRAL_TZ = ZoneInfo("America/Chicago")
 
 import passenger_pb2  # noqa: E402
 import passenger_pb2_grpc  # noqa: E402
+import staff_pb2  # noqa: E402
+import staff_pb2_grpc  # noqa: E402
 
 
 DEFAULT_PASSENGER_SERVICE_ADDRESS = "passenger-service:50051"
+DEFAULT_STAFF_SERVICE_ADDRESS = "staff-service:50052"
 
 
 class ChatAction:
@@ -71,6 +106,49 @@ class ChatDispatchResult:
     ok: bool
     data: Dict[str, Any]
     error: Optional[str] = None
+
+
+def _normalize_route_text(text: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", " ", (text or "").strip().lower())
+    return " ".join(cleaned.split())
+
+
+def _score_route_match(route_name: str, route_from: str, route_to: str) -> float:
+    route_norm = _normalize_route_text(route_name)
+    from_norm = _normalize_route_text(route_from)
+    to_norm = _normalize_route_text(route_to)
+    if not route_norm or (not from_norm and not to_norm):
+        return 0.0
+
+    query_norm = " ".join(part for part in (from_norm, to_norm) if part)
+    score = 0.0
+    if query_norm:
+        score += 0.40 * SequenceMatcher(None, query_norm, route_norm).ratio()
+        score += 0.15 * SequenceMatcher(
+            None,
+            f"{from_norm} to {to_norm}".strip(),
+            route_norm,
+        ).ratio()
+
+    if from_norm:
+        if from_norm in route_norm:
+            score += 0.25
+        else:
+            score += 0.10 * SequenceMatcher(None, from_norm, route_norm).ratio()
+
+    if to_norm:
+        if to_norm in route_norm:
+            score += 0.25
+        else:
+            score += 0.10 * SequenceMatcher(None, to_norm, route_norm).ratio()
+
+    if from_norm and to_norm:
+        if from_norm in route_norm and to_norm in route_norm:
+            score += 0.35
+        elif from_norm in route_norm or to_norm in route_norm:
+            score += 0.10
+
+    return score
 
 
 def _parse_json_object(text: str) -> Optional[Dict[str, Any]]:
@@ -241,9 +319,14 @@ class PassengerGrpcHandler:
             or os.environ.get("PASSENGER_SERVICE_ADDRESS")
             or DEFAULT_PASSENGER_SERVICE_ADDRESS
         )
+        self._staff_address = (
+            os.environ.get("STAFF_SERVICE_ADDRESS") or DEFAULT_STAFF_SERVICE_ADDRESS
+        )
         self._timeout_seconds = timeout_seconds
         self._channel: Optional[grpc.aio.Channel] = None
         self._stub: Optional[passenger_pb2_grpc.PassengerServiceStub] = None
+        self._staff_channel: Optional[grpc.aio.Channel] = None
+        self._staff_stub: Optional[staff_pb2_grpc.StaffServiceStub] = None
 
     async def _get_stub(self) -> passenger_pb2_grpc.PassengerServiceStub:
         if self._stub is not None:
@@ -258,6 +341,19 @@ class PassengerGrpcHandler:
         self._stub = passenger_pb2_grpc.PassengerServiceStub(self._channel)
         return self._stub
 
+    async def _get_staff_stub(self) -> staff_pb2_grpc.StaffServiceStub:
+        if self._staff_stub is not None:
+            return self._staff_stub
+        self._staff_channel = grpc.aio.insecure_channel(self._staff_address)
+        try:
+            await self._staff_channel.channel_ready()
+        except Exception:
+            await self._staff_channel.close()
+            self._staff_channel = None
+            raise
+        self._staff_stub = staff_pb2_grpc.StaffServiceStub(self._staff_channel)
+        return self._staff_stub
+
     def _metadata(self, forwarded_token: Optional[str]) -> Tuple[Tuple[str, str], ...]:
         md: list[Tuple[str, str]] = []
         internal = (os.environ.get("INTERNAL_SERVICE_SECRET") or "").strip()
@@ -270,14 +366,64 @@ class PassengerGrpcHandler:
     async def close(self) -> None:
         if self._channel is not None:
             await self._channel.close()
+        if self._staff_channel is not None:
+            await self._staff_channel.close()
         self._channel = None
         self._stub = None
+        self._staff_channel = None
+        self._staff_stub = None
+
+    async def list_routes(self) -> list[Dict[str, Any]]:
+        stub = await self._get_staff_stub()
+        req = staff_pb2.ListRoutesRequest(limit=500, offset=0)
+        resp = await stub.ListRoutes(
+            req, timeout=self._timeout_seconds, metadata=self._metadata(None)
+        )
+        return MessageToDict(resp, preserving_proto_field_name=True).get("routes") or []
+
+    async def _resolve_route_fields(self, intake: Dict[str, Any]) -> Dict[str, Any]:
+        if not isinstance(intake, dict):
+            return intake
+        route_from = str(intake.get("route_from") or "").strip()
+        route_to = str(intake.get("route_to") or "").strip()
+        if not route_from and not route_to:
+            return intake
+
+        try:
+            routes = await self.list_routes()
+        except Exception:
+            return intake
+
+        best_route: Optional[Dict[str, Any]] = None
+        best_score = 0.0
+        for route in routes:
+            score = _score_route_match(
+                str(route.get("route_name") or ""),
+                route_from,
+                route_to,
+            )
+            if score > best_score:
+                best_score = score
+                best_route = route
+
+        threshold = 0.75 if route_from and route_to else 0.55
+        if not best_route or best_score < threshold:
+            return intake
+
+        resolved = dict(intake)
+        resolved["route_id"] = str(best_route.get("id") or "").strip()
+        resolved["route_or_station"] = (
+            str(best_route.get("route_name") or "").strip()
+            or f"{route_from} -> {route_to}".strip(" ->")
+        )
+        return resolved
 
     async def create_lost_report(
         self, *, passenger_id: str, payload: Dict[str, Any], forwarded_token: Optional[str] = None
     ) -> passenger_pb2.LostReport:
         stub = await self._get_stub()
         data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+        data = await self._resolve_route_fields(dict(data or {}))
         req = _intake_to_create_lost_report_request(passenger_id=passenger_id, intake=data)
         return await stub.CreateLostReport(
             req, timeout=self._timeout_seconds, metadata=self._metadata(forwarded_token)

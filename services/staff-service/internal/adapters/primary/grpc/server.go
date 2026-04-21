@@ -18,6 +18,7 @@ func NewServer(usecase inbound.StaffUsecase) *grpc.Server {
 				"/smartfind.staff.v1.StaffService/Login":                             true,
 				"/smartfind.staff.v1.StaffService/CreateStaff":                       true,
 				"/smartfind.staff.v1.StaffService/SearchFoundItemMatchesByEmbedding": true,
+				"/smartfind.staff.v1.StaffService/ListRoutes":                        true,
 			}),
 			interceptor.Logging(),
 		),

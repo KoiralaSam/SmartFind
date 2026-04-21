@@ -105,12 +105,19 @@ def _parse_json(text: str) -> dict:
 
 # PostgreSQL → BigQuery sync
 
-_LOST_REPORTS_SCHEMA = [
+_FOUND_ITEMS_SCHEMA = [
     bigquery.SchemaField("id", "STRING", mode="REQUIRED"),
     bigquery.SchemaField("route_id", "STRING", mode="NULLABLE"),
+    bigquery.SchemaField("location_found", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("route_or_station", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("category", "STRING", mode="NULLABLE"),
     bigquery.SchemaField("status", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("created_at", "TIMESTAMP", mode="REQUIRED"),
+]
+
+_LOST_REPORTS_SCHEMA = [
+    bigquery.SchemaField("id", "STRING", mode="REQUIRED"),
+    bigquery.SchemaField("date_lost", "TIMESTAMP", mode="NULLABLE"),
     bigquery.SchemaField("created_at", "TIMESTAMP", mode="REQUIRED"),
 ]
 
@@ -123,8 +130,8 @@ _ROUTES_SCHEMA = [
 
 def sync_to_bigquery() -> None:
     """
-    Sync lost_reports and routes from PostgreSQL to BigQuery (full replace).
-    Analytics is based on passenger lost reports only — not staff found items.
+    Sync found_items, lost_reports, and routes from PostgreSQL to BigQuery (full replace).
+    Historical analytics uses found-item locations and lost-report timestamps.
     """
     bq = get_bq_client()
 
@@ -132,18 +139,34 @@ def sync_to_bigquery() -> None:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id::text, route_id::text, route_or_station,
+                SELECT id::text, route_id::text, location_found, route_or_station,
                        category, status::text, created_at
-                FROM lost_reports
+                FROM found_items
                 """
             )
-            lr_rows = [
+            found_item_rows = [
                 {
                     "id": r["id"],
                     "route_id": r["route_id"],
+                    "location_found": r["location_found"],
                     "route_or_station": r["route_or_station"],
                     "category": r["category"],
                     "status": r["status"],
+                    "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                }
+                for r in cur.fetchall()
+            ]
+
+            cur.execute(
+                """
+                SELECT id::text, date_lost, created_at
+                FROM lost_reports
+                """
+            )
+            lost_report_rows = [
+                {
+                    "id": r["id"],
+                    "date_lost": r["date_lost"].isoformat() if r["date_lost"] else None,
                     "created_at": r["created_at"].isoformat() if r["created_at"] else None,
                 }
                 for r in cur.fetchall()
@@ -159,15 +182,25 @@ def sync_to_bigquery() -> None:
                 for r in cur.fetchall()
             ]
 
-    lr_job = bq.load_table_from_json(
-        lr_rows,
+    found_items_job = bq.load_table_from_json(
+        found_item_rows,
+        f"{BQ_PROJECT}.{BQ_DATASET}.found_items",
+        job_config=bigquery.LoadJobConfig(
+            schema=_FOUND_ITEMS_SCHEMA,
+            write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        ),
+    )
+    found_items_job.result()
+
+    lost_reports_job = bq.load_table_from_json(
+        lost_report_rows,
         f"{BQ_PROJECT}.{BQ_DATASET}.lost_reports",
         job_config=bigquery.LoadJobConfig(
             schema=_LOST_REPORTS_SCHEMA,
             write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
         ),
     )
-    lr_job.result()
+    lost_reports_job.result()
 
     routes_job = bq.load_table_from_json(
         routes_rows,
@@ -180,7 +213,10 @@ def sync_to_bigquery() -> None:
     routes_job.result()
 
     logger.info(
-        f"Synced to BigQuery: {len(lr_rows)} lost_reports, {len(routes_rows)} routes"
+        "Synced to BigQuery: "
+        f"{len(found_item_rows)} found_items, "
+        f"{len(lost_report_rows)} lost_reports, "
+        f"{len(routes_rows)} routes"
     )
 
 
@@ -198,15 +234,15 @@ def fetch_route_statistics(days_back: int) -> dict:
 
     query = f"""
         SELECT
-            COALESCE(r.route_name, lr.route_or_station, 'Unknown') AS location,
-            lr.route_id                                             AS route_id,
-            COUNT(lr.id)                                            AS incident_count,
-            COUNTIF(lr.status = 'open')                            AS open_count,
-            COUNTIF(lr.status = 'matched')                         AS matched_count,
-            MAX(lr.created_at)                                      AS last_incident
-        FROM {_table('lost_reports')} lr
-        LEFT JOIN {_table('routes')} r ON r.id = lr.route_id
-        WHERE lr.created_at >= @since
+            COALESCE(fi.location_found, r.route_name, fi.route_or_station, 'Unknown') AS location,
+            fi.route_id                                                                AS route_id,
+            COUNT(fi.id)                                                               AS incident_count,
+            COUNTIF(fi.status = 'unclaimed')                                          AS open_count,
+            COUNTIF(fi.status = 'claimed')                                            AS matched_count,
+            MAX(fi.created_at)                                                         AS last_incident
+        FROM {_table('found_items')} fi
+        LEFT JOIN {_table('routes')} r ON r.id = fi.route_id
+        WHERE fi.created_at >= @since
         GROUP BY location, route_id
         ORDER BY incident_count DESC
         LIMIT 20
@@ -214,7 +250,7 @@ def fetch_route_statistics(days_back: int) -> dict:
 
     total_query = f"""
         SELECT COUNT(*) AS n
-        FROM {_table('lost_reports')}
+        FROM {_table('found_items')}
         WHERE created_at >= @since
     """
 
@@ -252,34 +288,36 @@ def fetch_temporal_patterns(days_back: int) -> dict:
         ]
     )
 
+    ts_expr = "COALESCE(date_lost, created_at)"
+
     # DAYOFWEEK: 1=Sunday … 7=Saturday in BigQuery
     dow_query = f"""
         SELECT
-            FORMAT_TIMESTAMP('%A', created_at) AS day_name,
-            EXTRACT(DAYOFWEEK FROM created_at)  AS day_num,
+            FORMAT_TIMESTAMP('%A', {ts_expr}) AS day_name,
+            EXTRACT(DAYOFWEEK FROM {ts_expr})  AS day_num,
             COUNT(*)                            AS incident_count
         FROM {_table('lost_reports')}
-        WHERE created_at >= @since
+        WHERE {ts_expr} >= @since
         GROUP BY day_name, day_num
         ORDER BY day_num
     """
 
     month_query = f"""
         SELECT
-            FORMAT_TIMESTAMP('%Y-%m', created_at) AS month,
+            FORMAT_TIMESTAMP('%Y-%m', {ts_expr}) AS month,
             COUNT(*)                              AS incident_count
         FROM {_table('lost_reports')}
-        WHERE created_at >= @since
+        WHERE {ts_expr} >= @since
         GROUP BY month
         ORDER BY month
     """
 
     hour_query = f"""
         SELECT
-            EXTRACT(HOUR FROM created_at) AS hour_of_day,
+            EXTRACT(HOUR FROM {ts_expr}) AS hour_of_day,
             COUNT(*)                      AS incident_count
         FROM {_table('lost_reports')}
-        WHERE created_at >= @since
+        WHERE {ts_expr} >= @since
         GROUP BY hour_of_day
         ORDER BY hour_of_day
     """
@@ -309,12 +347,12 @@ def fetch_category_hotspots(days_back: int, top_n: int = 10) -> dict:
 
     location_query = f"""
         SELECT
-            COALESCE(r.route_name, lr.route_or_station, 'Unknown') AS location,
-            COALESCE(lr.category, 'Other')                          AS category,
-            COUNT(*)                                                AS count
-        FROM {_table('lost_reports')} lr
-        LEFT JOIN {_table('routes')} r ON r.id = lr.route_id
-        WHERE lr.created_at >= @since
+            COALESCE(fi.location_found, r.route_name, fi.route_or_station, 'Unknown') AS location,
+            COALESCE(fi.category, 'Other')                                             AS category,
+            COUNT(*)                                                                   AS count
+        FROM {_table('found_items')} fi
+        LEFT JOIN {_table('routes')} r ON r.id = fi.route_id
+        WHERE fi.created_at >= @since
         GROUP BY location, category
         ORDER BY location, count DESC
         LIMIT @limit_n
@@ -324,7 +362,7 @@ def fetch_category_hotspots(days_back: int, top_n: int = 10) -> dict:
         SELECT
             COALESCE(category, 'Other') AS category,
             COUNT(*)                    AS count
-        FROM {_table('lost_reports')}
+        FROM {_table('found_items')}
         WHERE created_at >= @since
         GROUP BY category
         ORDER BY count DESC
@@ -363,9 +401,9 @@ def generate_hotspot_report(
 
     system_prompt = """You are a transit safety analytics AI for a lost & found system.
 You have been given three data sources queried from BigQuery:
-1. route_stats: lost report counts per route/station
-2. temporal_stats: time-based patterns (day-of-week, month, hour)
-3. category_stats: item categories most reported lost at each location
+1. route_stats: found item counts per location
+2. temporal_stats: time-based patterns derived from lost report timestamps
+3. category_stats: item categories most commonly found at each location
 
 Your task: produce a structured JSON hotspot report WITH actionable staff recommendations.
 
@@ -587,7 +625,7 @@ def run_analytics_endpoint(req: RunAnalyticsRequest):
 def get_heatmap(days: int = 90):
     """
     Return heatmap data from the latest stored hotspot report.
-    If new found_items were added after the last report was generated,
+    If new found_items or lost_reports were added after the last report was generated,
     the cache is invalidated and a fresh report is generated.
     Falls back to a live PostgreSQL query if no report is stored yet.
     """
@@ -606,14 +644,23 @@ def get_heatmap(days: int = 90):
                 )
                 row = cur.fetchone()
 
-                # Invalidate cache if new found_items arrived after last report
+                # Invalidate cache if new found_items or lost_reports arrived after last report.
                 if row is not None:
                     cur.execute("SELECT MAX(created_at) AS latest FROM found_items")
-                    latest_row = cur.fetchone()
-                    latest_item = latest_row["latest"] if latest_row else None
-                    if latest_item and row["generated_at"] and latest_item > row["generated_at"]:
+                    latest_found_row = cur.fetchone()
+                    latest_found_item = latest_found_row["latest"] if latest_found_row else None
+
+                    cur.execute("SELECT MAX(COALESCE(date_lost, created_at)) AS latest FROM lost_reports")
+                    latest_lost_row = cur.fetchone()
+                    latest_lost_report = latest_lost_row["latest"] if latest_lost_row else None
+
+                    latest_activity = max(
+                        [ts for ts in [latest_found_item, latest_lost_report] if ts is not None],
+                        default=None,
+                    )
+                    if latest_activity and row["generated_at"] and latest_activity > row["generated_at"]:
                         logger.info(
-                            f"New found_items since last report ({latest_item} > {row['generated_at']})"
+                            f"New analytics activity since last report ({latest_activity} > {row['generated_at']})"
                             " — invalidating cache"
                         )
                         row = None
@@ -697,7 +744,7 @@ def _fetch_route_stats_postgres(days_back: int) -> dict:
             cur.execute(
                 """
                 SELECT
-                    COALESCE(r.route_name, fi.route_or_station, fi.location_found, 'Unknown') AS location,
+                    COALESCE(fi.location_found, r.route_name, fi.route_or_station, 'Unknown') AS location,
                     fi.route_id::text                                                           AS route_id,
                     COUNT(fi.id)                                                                AS incident_count,
                     COUNT(fi.id) FILTER (WHERE fi.status = 'unclaimed')                        AS open_count,
@@ -733,16 +780,16 @@ def _fetch_route_stats_postgres(days_back: int) -> dict:
 
 
 def _fetch_temporal_patterns_postgres(days_back: int) -> dict:
-    """Fetch time-based patterns from found_items in PostgreSQL."""
+    """Fetch time-based patterns from lost_reports in PostgreSQL."""
     since = datetime.now() - timedelta(days=days_back)
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT TO_CHAR(created_at, 'Day') AS day_name,
-                       EXTRACT(DOW FROM created_at)::int AS day_num,
+                SELECT TO_CHAR(COALESCE(date_lost, created_at), 'Day') AS day_name,
+                       EXTRACT(DOW FROM COALESCE(date_lost, created_at))::int AS day_num,
                        COUNT(*) AS incident_count
-                FROM found_items WHERE created_at >= %s
+                FROM lost_reports WHERE COALESCE(date_lost, created_at) >= %s
                 GROUP BY day_name, day_num ORDER BY day_num
                 """,
                 (since,),
@@ -751,9 +798,9 @@ def _fetch_temporal_patterns_postgres(days_back: int) -> dict:
 
             cur.execute(
                 """
-                SELECT TO_CHAR(created_at, 'YYYY-MM') AS month,
+                SELECT TO_CHAR(COALESCE(date_lost, created_at), 'YYYY-MM') AS month,
                        COUNT(*) AS incident_count
-                FROM found_items WHERE created_at >= %s
+                FROM lost_reports WHERE COALESCE(date_lost, created_at) >= %s
                 GROUP BY month ORDER BY month
                 """,
                 (since,),
@@ -762,9 +809,9 @@ def _fetch_temporal_patterns_postgres(days_back: int) -> dict:
 
             cur.execute(
                 """
-                SELECT EXTRACT(HOUR FROM created_at)::int AS hour_of_day,
+                SELECT EXTRACT(HOUR FROM COALESCE(date_lost, created_at))::int AS hour_of_day,
                        COUNT(*) AS incident_count
-                FROM found_items WHERE created_at >= %s
+                FROM lost_reports WHERE COALESCE(date_lost, created_at) >= %s
                 GROUP BY hour_of_day ORDER BY hour_of_day
                 """,
                 (since,),
@@ -786,7 +833,7 @@ def _fetch_category_hotspots_postgres(days_back: int, top_n: int = 10) -> dict:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT COALESCE(r.route_name, fi.route_or_station, fi.location_found, 'Unknown') AS location,
+                SELECT COALESCE(fi.location_found, r.route_name, fi.route_or_station, 'Unknown') AS location,
                        COALESCE(fi.category, 'Other') AS category,
                        COUNT(*) AS count
                 FROM found_items fi
