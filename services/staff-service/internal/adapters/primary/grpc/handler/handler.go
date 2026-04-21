@@ -187,6 +187,82 @@ func (h *Handler) CreateFoundItem(ctx context.Context, req *pb.CreateFoundItemRe
 	return out, nil
 }
 
+func (h *Handler) UpdateFoundItem(ctx context.Context, req *pb.UpdateFoundItemRequest) (*pb.FoundItem, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	claims, err := requireStaffClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforceStaffIDMatch(req.GetStaffId(), claims); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.GetFoundItemId()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "found_item_id is required")
+	}
+
+	in := inbound.UpdateFoundItemInput{
+		StaffID:         req.GetStaffId(),
+		FoundItemID:     req.GetFoundItemId(),
+		ItemName:        req.GetItemName(),
+		ItemDescription: req.GetItemDescription(),
+		ItemType:        req.GetItemType(),
+		Brand:           req.GetBrand(),
+		Model:           req.GetModel(),
+		Color:           req.GetColor(),
+		Material:        req.GetMaterial(),
+		ItemCondition:   req.GetItemCondition(),
+		Category:        req.GetCategory(),
+		LocationFound:   req.GetLocationFound(),
+		RouteOrStation:  req.GetRouteOrStation(),
+		RouteID:         req.GetRouteId(),
+	}
+	if req.GetDateFound() != nil {
+		in.DateFound = req.GetDateFound().AsTime()
+	}
+	if len(req.GetImageKeys()) > 0 {
+		keys := req.GetImageKeys()
+		in.ImageKeys = &keys
+	}
+	if req.GetPrimaryImageKey() != "" {
+		pk := req.GetPrimaryImageKey()
+		in.PrimaryImageKey = &pk
+	}
+
+	it, err := h.usecase.UpdateFoundItem(ctx, in)
+	if err != nil {
+		return nil, mapDomainError(err)
+	}
+	out := mapper.FoundItemToPB(it)
+	attachPresignedImageURLs(ctx, out)
+	return out, nil
+}
+
+func (h *Handler) DeleteFoundItem(ctx context.Context, req *pb.DeleteFoundItemRequest) (*emptypb.Empty, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	claims, err := requireStaffClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforceStaffIDMatch(req.GetStaffId(), claims); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.GetFoundItemId()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "found_item_id is required")
+	}
+
+	if err := h.usecase.DeleteFoundItem(ctx, inbound.DeleteFoundItemInput{
+		StaffID:     req.GetStaffId(),
+		FoundItemID: req.GetFoundItemId(),
+	}); err != nil {
+		return nil, mapDomainError(err)
+	}
+	return &emptypb.Empty{}, nil
+}
+
 func (h *Handler) UpdateFoundItemStatus(ctx context.Context, req *pb.UpdateFoundItemStatusRequest) (*pb.FoundItem, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"os"
@@ -16,6 +17,7 @@ import (
 	"smartfind/shared/db"
 	"smartfind/shared/env"
 	"smartfind/shared/pgvector"
+	"smartfind/shared/s3media"
 	staffpb "smartfind/shared/proto/staff"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -33,11 +35,17 @@ type lostReportRow struct {
 }
 
 type insertedMatch struct {
-	FoundItemID     string
-	ItemName        string
-	SimilarityScore float64
-	PrimaryImageURL string
-	ImageURLs       []string
+	FoundItemID      string
+	ItemName         string
+	SimilarityScore  float64
+	PrimaryImageKey  string
+	ImageKeys        []string
+}
+
+// emailMatch is the same row plus presigned image URLs for HTML email clients.
+type emailMatch struct {
+	insertedMatch
+	ImageURLs []string
 }
 
 func main() {
@@ -202,7 +210,10 @@ func runOnceWithPool(ctx context.Context, pool *pgxpool.Pool, staffClient staffp
 				continue
 			}
 			it := m.GetItem()
-			ok, err := insertNotification(ctx, pool, lr.PassengerID, lr.LostReportID, it.GetId(), m.GetSimilarityScore(), it.GetItemName(), it.GetImageUrls(), it.GetPrimaryImageUrl())
+			// Store raw S3 keys (not presigned URLs) so the passenger-service
+			// can generate fresh presigned URLs at read-time. Presigned URLs
+			// expire in ~10 minutes; keys never expire.
+			ok, err := insertNotification(ctx, pool, lr.PassengerID, lr.LostReportID, it.GetId(), m.GetSimilarityScore(), it.GetItemName(), it.GetImageKeys(), it.GetPrimaryImageKey())
 			if err != nil {
 				return err
 			}
@@ -213,8 +224,8 @@ func runOnceWithPool(ctx context.Context, pool *pgxpool.Pool, staffClient staffp
 				FoundItemID:     it.GetId(),
 				ItemName:        it.GetItemName(),
 				SimilarityScore: m.GetSimilarityScore(),
-				PrimaryImageURL: it.GetPrimaryImageUrl(),
-				ImageURLs:       it.GetImageUrls(),
+				PrimaryImageKey: it.GetPrimaryImageKey(),
+				ImageKeys:       it.GetImageKeys(),
 			})
 			remaining--
 		}
@@ -230,6 +241,8 @@ func runOnceWithPool(ctx context.Context, pool *pgxpool.Pool, staffClient staffp
 		}
 
 		if err := sendMatchEmail(ctx, lr.PassengerEmail, lr.LostReportID, lr.LostItemName, inserted, emailMaxItems); err != nil {
+			// sendMatchEmail presigns S3 keys for inline images; if Mailtrap or S3
+			// is misconfigured, we still keep DB notifications — only log the error.
 			log.Printf("match email failed passenger_id=%s lost_report_id=%s: %v", lr.PassengerID, lr.LostReportID, err)
 			continue
 		}
@@ -249,12 +262,12 @@ func countNotificationsSince(ctx context.Context, pool *pgxpool.Pool, col string
 	return n, err
 }
 
-func insertNotification(ctx context.Context, pool *pgxpool.Pool, passengerID, lostReportID, foundItemID string, similarity float64, itemName string, imageURLs []string, primaryImageURL string) (bool, error) {
-	if strings.TrimSpace(primaryImageURL) == "" && len(imageURLs) > 0 {
-		primaryImageURL = imageURLs[0]
-	}
-	if primaryImageURL == "" {
-		primaryImageURL = ""
+// insertNotification stores raw S3 keys (not presigned URLs) in the
+// image_urls / primary_image_url columns. Presigning happens at read-time
+// inside passenger-service ListNotifications so images never show as broken.
+func insertNotification(ctx context.Context, pool *pgxpool.Pool, passengerID, lostReportID, foundItemID string, similarity float64, itemName string, imageKeys []string, primaryImageKey string) (bool, error) {
+	if strings.TrimSpace(primaryImageKey) == "" && len(imageKeys) > 0 {
+		primaryImageKey = imageKeys[0]
 	}
 
 	tag, err := pool.Exec(ctx, `
@@ -266,7 +279,7 @@ func insertNotification(ctx context.Context, pool *pgxpool.Pool, passengerID, lo
 			$4, $5, $6::text[], $7
 		)
 		ON CONFLICT (lost_report_id, found_item_id) DO NOTHING
-	`, passengerID, lostReportID, foundItemID, similarity, itemName, imageURLs, primaryImageURL)
+	`, passengerID, lostReportID, foundItemID, similarity, itemName, imageKeys, primaryImageKey)
 	if err != nil {
 		return false, err
 	}
@@ -352,8 +365,9 @@ func sendMatchEmail(ctx context.Context, toEmail string, lostReportID string, lo
 		subject = fmt.Sprintf("Possible matches for your lost %s", lostItemName)
 	}
 
-	text := buildTextEmail(lostReportID, link, matches)
-	html := buildHTMLEmail(lostReportID, link, matches)
+	emailMatches := enrichMatchesForEmail(ctx, matches)
+	text := buildTextEmail(lostReportID, link, lostItemName, toEmail, emailMatches)
+	htmlBody := buildHTMLEmail(lostReportID, link, lostItemName, toEmail, emailMatches)
 
 	payload := map[string]any{
 		"from": map[string]any{
@@ -363,7 +377,7 @@ func sendMatchEmail(ctx context.Context, toEmail string, lostReportID string, lo
 		"to":       []any{map[string]any{"email": toEmail}},
 		"subject":  subject,
 		"text":     text,
-		"html":     html,
+		"html":     htmlBody,
 		"category": "smartfind-match-notification",
 		"custom_variables": map[string]any{
 			"lost_report_id": lostReportID,
@@ -393,37 +407,204 @@ func sendMatchEmail(ctx context.Context, toEmail string, lostReportID string, lo
 	return nil
 }
 
-func buildTextEmail(lostReportID string, link string, matches []insertedMatch) string {
+func orderedUniqueImageKeys(primary string, keys []string, max int) []string {
+	if max <= 0 {
+		max = 5
+	}
+	seen := make(map[string]struct{})
+	out := make([]string, 0, max)
+	add := func(k string) {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			return
+		}
+		if _, ok := seen[k]; ok {
+			return
+		}
+		seen[k] = struct{}{}
+		out = append(out, k)
+	}
+	add(primary)
+	for _, k := range keys {
+		if len(out) >= max {
+			break
+		}
+		add(k)
+	}
+	return out
+}
+
+func greetingFromEmail(addr string) string {
+	addr = strings.TrimSpace(addr)
+	at := strings.IndexByte(addr, '@')
+	local := addr
+	if at > 0 {
+		local = strings.ToLower(strings.TrimSpace(addr[:at]))
+	}
+	if local == "" {
+		return "there"
+	}
+	seps := func(r rune) bool {
+		return r == '.' || r == '_' || r == '-' || r == '+'
+	}
+	fields := strings.FieldsFunc(local, seps)
+	if len(fields) == 0 || fields[0] == "" {
+		return "there"
+	}
+	f := fields[0]
+	if len(f) == 1 {
+		return strings.ToUpper(f)
+	}
+	return strings.ToUpper(f[:1]) + f[1:]
+}
+
+func enrichMatchesForEmail(ctx context.Context, matches []insertedMatch) []emailMatch {
+	p, err := s3media.GetPresigner(ctx)
+	if err != nil || p == nil {
+		log.Printf("match email: presigner unavailable, sending without inline images: %v", err)
+		out := make([]emailMatch, 0, len(matches))
+		for _, m := range matches {
+			out = append(out, emailMatch{insertedMatch: m})
+		}
+		return out
+	}
+
+	ttlSec := env.GetInt("MATCH_EMAIL_IMAGE_TTL_SECONDS", 7*24*3600)
+	if ttlSec <= 0 {
+		ttlSec = 7 * 24 * 3600
+	}
+	const maxPresignSeconds = 7 * 24 * 3600
+	if ttlSec > maxPresignSeconds {
+		ttlSec = maxPresignSeconds
+	}
+	ttl := time.Duration(ttlSec) * time.Second
+
+	out := make([]emailMatch, 0, len(matches))
+	for _, m := range matches {
+		keys := orderedUniqueImageKeys(m.PrimaryImageKey, m.ImageKeys, 5)
+		urls := make([]string, 0, len(keys))
+		for _, k := range keys {
+			u, err := p.PresignGetWithTTL(ctx, k, ttl)
+			if err != nil || strings.TrimSpace(u) == "" {
+				log.Printf("match email: presign failed for key=%s: %v", k, err)
+				continue
+			}
+			urls = append(urls, u)
+		}
+		out = append(out, emailMatch{insertedMatch: m, ImageURLs: urls})
+	}
+	return out
+}
+
+func buildTextEmail(lostReportID, link, lostItemName, toEmail string, matches []emailMatch) string {
 	var b strings.Builder
-	b.WriteString("We found potential matches for your lost item.\n\n")
+	b.WriteString("SmartFind — we found potential matches for your lost item.\n\n")
+	b.WriteString(fmt.Sprintf("Hi %s,\n\n", greetingFromEmail(toEmail)))
+	if strings.TrimSpace(lostItemName) != "" {
+		b.WriteString(fmt.Sprintf("Regarding your lost item: %s\n\n", lostItemName))
+	}
 	b.WriteString("Lost report ID: " + lostReportID + "\n\n")
 	for i, m := range matches {
-		b.WriteString(fmt.Sprintf("%d) %s (score: %.2f)\n", i+1, safe(m.ItemName, "Item"), m.SimilarityScore))
-		if strings.TrimSpace(m.PrimaryImageURL) != "" {
-			b.WriteString("   Photo: " + m.PrimaryImageURL + "\n")
+		b.WriteString(fmt.Sprintf("%d) %s (similarity: %.0f%%)\n",
+			i+1, safe(m.ItemName, "Item"), m.SimilarityScore*100))
+		if len(m.ImageURLs) > 0 {
+			b.WriteString("   Photo links (time-limited):\n")
+			for _, u := range m.ImageURLs {
+				b.WriteString("   - " + u + "\n")
+			}
 		}
 	}
-	b.WriteString("\nOpen the app to review and file a claim:\n" + link + "\n")
+	b.WriteString("\nReview matches and file a claim in the app:\n" + link + "\n")
 	return b.String()
 }
 
-func buildHTMLEmail(lostReportID string, link string, matches []insertedMatch) string {
-	var b strings.Builder
-	b.WriteString("<div>")
-	b.WriteString("<p>We found potential matches for your lost item.</p>")
-	b.WriteString("<p><strong>Lost report ID:</strong> " + htmlEscape(lostReportID) + "</p>")
-	b.WriteString("<ul>")
-	for _, m := range matches {
-		b.WriteString("<li>")
-		b.WriteString("<div><strong>" + htmlEscape(safe(m.ItemName, "Item")) + "</strong> (score: " + fmt.Sprintf("%.2f", m.SimilarityScore) + ")</div>")
-		if strings.TrimSpace(m.PrimaryImageURL) != "" {
-			b.WriteString("<div><img src=\"" + htmlEscape(m.PrimaryImageURL) + "\" alt=\"match\" style=\"max-width:240px;border-radius:8px;\" /></div>")
-		}
-		b.WriteString("</li>")
+func buildHTMLEmail(lostReportID, link, lostItemName, toEmail string, matches []emailMatch) string {
+	greet := html.EscapeString(greetingFromEmail(toEmail))
+	itemLabel := strings.TrimSpace(lostItemName)
+	if itemLabel == "" {
+		itemLabel = "your lost item"
 	}
-	b.WriteString("</ul>")
-	b.WriteString("<p><a href=\"" + htmlEscape(link) + "\">Open SmartFind to review and file a claim</a></p>")
-	b.WriteString("</div>")
+	itemEsc := html.EscapeString(itemLabel)
+
+	moss := "#4a7c59"
+	accent := "#e85d04"
+	panel := "#e8f5e9"
+	pageBG := "#f4f4f4"
+
+	var b strings.Builder
+	b.WriteString(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">`)
+	b.WriteString(`<title>SmartFind — possible matches</title></head>`)
+	b.WriteString(fmt.Sprintf(`<body style="margin:0;padding:0;background:%s;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">`, pageBG))
+	b.WriteString(`<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr><td align="center" style="padding:32px 16px;">`)
+	b.WriteString(`<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;border-collapse:collapse;">`)
+
+	b.WriteString(`<tr><td align="center" style="padding-bottom:20px;">`)
+	b.WriteString(fmt.Sprintf(`<span style="font-size:22px;font-weight:700;letter-spacing:-0.02em;color:%s;">smartfind</span>`, moss))
+	b.WriteString(`</td></tr>`)
+
+	b.WriteString(`<tr><td align="center" style="padding-bottom:8px;">`)
+	b.WriteString(fmt.Sprintf(`<span style="display:block;font-size:26px;font-weight:800;line-height:1.15;letter-spacing:0.04em;color:%s;text-transform:uppercase;">We may have found</span>`, moss))
+	b.WriteString(fmt.Sprintf(`<span style="display:block;font-size:26px;font-weight:800;line-height:1.15;letter-spacing:0.04em;color:%s;text-transform:uppercase;">A match for you</span>`, accent))
+	b.WriteString(`</td></tr>`)
+
+	if len(matches) > 0 && len(matches[0].ImageURLs) > 0 {
+		u := html.EscapeString(matches[0].ImageURLs[0])
+		alt := html.EscapeString(safe(matches[0].ItemName, "Found item"))
+		b.WriteString(`<tr><td align="center" style="padding:20px 0 8px;">`)
+		b.WriteString(fmt.Sprintf(`<img src="%s" alt="%s" width="320" style="display:block;max-width:92%%;height:auto;border-radius:16px;border:1px solid #c8e6c9;box-shadow:0 4px 24px rgba(0,0,0,0.06);" />`, u, alt))
+		b.WriteString(`</td></tr>`)
+	}
+
+	b.WriteString(fmt.Sprintf(`<tr><td style="background:%s;border-radius:20px;padding:28px 24px 24px;margin-top:8px;">`, panel))
+
+	b.WriteString(fmt.Sprintf(`<p style="margin:0 0 12px;font-size:17px;font-weight:600;color:#1b1b1b;">Hey %s,</p>`, greet))
+	b.WriteString(`<p style="margin:0 0 20px;font-size:15px;line-height:1.55;color:#333;text-align:center;">`)
+	b.WriteString(fmt.Sprintf(`To help reunite you with <strong style="color:#1b1b1b;">%s</strong>, we found one or more similar items logged by transit staff. `+
+		`Review the photos below and open SmartFind to file a claim if one of them is yours.`, itemEsc))
+	b.WriteString(`</p>`)
+
+	b.WriteString(`<table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 auto 24px;border-collapse:collapse;"><tr><td align="center" style="border-radius:999px;background:` + accent + `;">`)
+	escLink := html.EscapeString(link)
+	b.WriteString(fmt.Sprintf(`<a href="%s" style="display:inline-block;padding:14px 28px;font-size:14px;font-weight:700;letter-spacing:0.06em;color:#ffffff;text-decoration:none;text-transform:uppercase;">View matches in SmartFind</a>`, escLink))
+	b.WriteString(`</td></tr></table>`)
+
+	for i, m := range matches {
+		name := html.EscapeString(safe(m.ItemName, "Item"))
+		scorePct := int(m.SimilarityScore*100 + 0.5)
+		if scorePct > 100 {
+			scorePct = 100
+		}
+		b.WriteString(`<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-bottom:14px;border-collapse:collapse;background:#ffffff;border-radius:14px;overflow:hidden;border:1px solid #c8e6c9;">`)
+		b.WriteString(`<tr><td style="padding:14px 16px;">`)
+		b.WriteString(fmt.Sprintf(`<p style="margin:0 0 6px;font-size:13px;font-weight:700;color:%s;text-transform:uppercase;letter-spacing:0.08em;">Match %d</p>`, moss, i+1))
+		b.WriteString(fmt.Sprintf(`<p style="margin:0 0 10px;font-size:16px;font-weight:600;color:#1b1b1b;">%s</p>`, name))
+		b.WriteString(fmt.Sprintf(`<p style="margin:0 0 12px;font-size:12px;color:#666;">Similarity score: <strong>%d%%</strong></p>`, scorePct))
+
+		if len(m.ImageURLs) > 0 {
+			b.WriteString(`<table role="presentation" cellspacing="0" cellpadding="0" style="border-collapse:collapse;"><tr>`)
+			for _, raw := range m.ImageURLs {
+				u := html.EscapeString(raw)
+				b.WriteString(`<td style="padding:4px;vertical-align:top;">`)
+				b.WriteString(fmt.Sprintf(`<img src="%s" alt="" width="120" style="display:block;width:120px;max-width:100%%;height:auto;border-radius:10px;border:1px solid #e0e0e0;" />`, u))
+				b.WriteString(`</td>`)
+			}
+			b.WriteString(`</tr></table>`)
+		} else {
+			b.WriteString(`<p style="margin:0;font-size:12px;color:#888;font-style:italic;">No photos on file for this item.</p>`)
+		}
+		b.WriteString(`</td></tr></table>`)
+	}
+
+	b.WriteString(fmt.Sprintf(`<p style="margin:16px 0 0;font-size:11px;line-height:1.5;color:#555;text-align:center;">Lost report ID: <strong>%s</strong><br/>`, html.EscapeString(lostReportID)))
+	b.WriteString(`Links and inline photos use time-limited secure URLs — open this email soon for the best experience.</p>`)
+
+	b.WriteString(`</td></tr>`)
+
+	b.WriteString(`<tr><td align="center" style="padding:20px 8px 0;font-size:11px;line-height:1.5;color:#777;">`)
+	b.WriteString(`You received this because you filed a lost-item report with SmartFind.<br/>`)
+	b.WriteString(`If you did not request this, you can ignore this message.</td></tr>`)
+
+	b.WriteString(`</table></td></tr></table></body></html>`)
 	return b.String()
 }
 
@@ -433,15 +614,4 @@ func safe(s string, fallback string) string {
 		return fallback
 	}
 	return s
-}
-
-func htmlEscape(s string) string {
-	replacer := strings.NewReplacer(
-		"&", "&amp;",
-		"<", "&lt;",
-		">", "&gt;",
-		"\"", "&quot;",
-		"'", "&#39;",
-	)
-	return replacer.Replace(s)
 }

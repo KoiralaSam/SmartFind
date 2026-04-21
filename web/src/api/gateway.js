@@ -163,6 +163,20 @@ export async function staffUpdateFoundItemStatus(body) {
   });
 }
 
+export async function staffUpdateFoundItem(foundItemId, body) {
+  return requestJSON(`/staff/found-items/${encodeURIComponent(foundItemId)}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function staffDeleteFoundItem(foundItemId, staffId) {
+  return requestJSON(`/staff/found-items/${encodeURIComponent(foundItemId)}`, {
+    method: "DELETE",
+    body: JSON.stringify({ staff_id: staffId }),
+  });
+}
+
 /** Transit lines / routes (DB `routes` table). */
 export async function staffListTransitRoutes(params) {
   const q = new URLSearchParams();

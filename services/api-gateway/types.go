@@ -89,6 +89,32 @@ type StaffUpdateFoundItemStatusRequest struct {
 	Status      string `json:"status"`
 }
 
+// StaffUpdateFoundItemRequest carries the patch body for PUT /staff/found-items/{id}.
+// Only non-empty fields are applied; image_keys replaces the full list when present.
+type StaffUpdateFoundItemRequest struct {
+	StaffID         string   `json:"staff_id"`
+	ItemName        string   `json:"item_name"`
+	ItemDescription string   `json:"item_description"`
+	ItemType        string   `json:"item_type"`
+	Brand           string   `json:"brand"`
+	Model           string   `json:"model"`
+	Color           string   `json:"color"`
+	Material        string   `json:"material"`
+	ItemCondition   string   `json:"item_condition"`
+	Category        string   `json:"category"`
+	LocationFound   string   `json:"location_found"`
+	RouteOrStation  string   `json:"route_or_station"`
+	RouteID         string   `json:"route_id"`
+	DateFound       string   `json:"date_found"` // RFC3339; omit to leave unchanged
+	ImageKeys       []string `json:"image_keys"`
+	PrimaryImageKey string   `json:"primary_image_key"`
+}
+
+// StaffDeleteFoundItemRequest carries the body for DELETE /staff/found-items/{id}.
+type StaffDeleteFoundItemRequest struct {
+	StaffID string `json:"staff_id"`
+}
+
 type FoundItemDTO struct {
 	ID              string    `json:"id"`
 	PostedByStaffID string    `json:"posted_by_staff_id"`

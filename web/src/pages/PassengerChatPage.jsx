@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, CheckCircle2, ImageIcon, Loader2, Mic, MicOff, Send, Sparkles } from "lucide-react";
 import { AccountAvatar } from "../components/AccountAvatar";
+import { NotificationsPanel } from "../components/NotificationsPanel";
 import { passengerFileClaim } from "../api/gateway";
 import { useAuth } from "../context/useAuth";
 
@@ -754,6 +755,9 @@ export default function PassengerChatPage() {
                   Report, track, and claim lost items in one place
                 </p>
               </div>
+            </div>
+            <div className="shrink-0">
+              <NotificationsPanel />
             </div>
           </div>
         </header>
