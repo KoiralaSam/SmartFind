@@ -13,8 +13,7 @@ data:
   STAFF_SERVICE_ADDRESS: "staff-service:50052"
   # API Gateway -> detail-extracter-agent gRPC address (cluster DNS name + port)
   DETAIL_EXTRACTER_SERVICE_ADDRESS: "detail-extracter-agent:50053"
-  # Minimum cosine similarity (0..1) for a found-item to be returned as a
-  # match for a lost report. Applies to both the on-demand check-my-item
-  # path and the passenger-match-worker CronJob. 0.65 is calibrated for
-  # noisy real-world passenger/staff descriptions; raise for precision.
+  # Minimum cosine similarity (0..1) for a found-item vs a lost report.
+  # Used by passenger-service and passenger-match-worker. 0.65 fits noisy
+  # real-world descriptions; raise for stricter matching.
   MATCH_MIN_SIMILARITY: "0.65"
