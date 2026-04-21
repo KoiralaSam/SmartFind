@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Bot, CheckCircle2, ImageIcon, Loader2, Mic, MicOff, Send, Sparkles } from "lucide-react";
 import { AccountAvatar } from "../components/AccountAvatar";
+import { NotificationsPanel } from "../components/NotificationsPanel";
+import { passengerFileClaim } from "../api/gateway";
 import { useAuth } from "../context/useAuth";
 
 const CHAT_BASE_URL = "/api";
@@ -681,23 +683,16 @@ export default function PassengerChatPage() {
       ),
     );
 
-    const claimPrompt = `File a claim for my selected match. Respond with JSON only using action "file_claim". Use found_item_id "${match.found_item_id}", lost_report_id "${lostReportId}", and set a concise message saying this is my selected item.`;
-
     try {
-      const data = await requestAssistantReply(
-        buildConversationWithNextUserMessage(claimPrompt),
-      );
-
-      let replyContent = data.reply;
-      if (data.action && data.action !== "none") {
-        if (data.grpc_ok) {
-          replyContent = formatBackendResult(data.action, data.grpc_data);
-        } else {
-          console.warn("Backend action failed:", data.action, data.grpc_error);
-          replyContent =
-            "I couldn’t file your claim right now. Please try again in a moment.";
-        }
-      }
+      // Canonical path: the api-gateway's POST /passenger/claims wraps the
+      // passenger-service FileClaim gRPC and resolves the passenger from the
+      // forwarded session token. The notifications drawer uses the same helper,
+      // so auth, validation, and duplicate-claim errors go through one funnel.
+      const claim = await passengerFileClaim({
+        foundItemId: match.found_item_id,
+        lostReportId,
+        message: "I believe this is my item.",
+      });
 
       setMessages((prev) => [
         ...prev.map((m) =>
@@ -707,15 +702,16 @@ export default function PassengerChatPage() {
                 matchCards: {
                   ...m.matchCards,
                   claimingId: "",
-                  claimedId:
-                    data.action === "file_claim" && data.grpc_ok
-                      ? match.found_item_id
-                      : m.matchCards?.claimedId || "",
+                  claimedId: match.found_item_id,
                 },
               }
             : m,
         ),
-        { id: `a-${Date.now()}`, role: "assistant", content: replyContent },
+        {
+          id: `a-${Date.now()}`,
+          role: "assistant",
+          content: formatBackendResult("file_claim", claim || {}),
+        },
       ]);
     } catch (error) {
       setMessages((prev) =>
@@ -759,6 +755,9 @@ export default function PassengerChatPage() {
                   Report, track, and claim lost items in one place
                 </p>
               </div>
+            </div>
+            <div className="shrink-0">
+              <NotificationsPanel />
             </div>
           </div>
         </header>

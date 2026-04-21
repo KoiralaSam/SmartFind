@@ -5,7 +5,7 @@ metadata:
   labels:
     app: passenger-match-worker
 spec:
-  schedule: "*/5 * * * *"
+  schedule: "*/1 * * * *"
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 1
   failedJobsHistoryLimit: 2
@@ -37,44 +37,96 @@ spec:
                     configMapKeyRef:
                       name: app-config
                       key: STAFF_SERVICE_ADDRESS
-                - name: SENDGRID_API_KEY
+                # S3: presign found-item photos for HTML match emails (shared/s3media).
+                - name: AWS_ACCESS_KEY_ID
                   valueFrom:
                     secretKeyRef:
-                      name: sendgrid-secrets
-                      key: SENDGRID_API_KEY
-                - name: SENDGRID_FROM_EMAIL
+                      name: s3-credentials
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
                   valueFrom:
                     secretKeyRef:
-                      name: sendgrid-secrets
-                      key: SENDGRID_FROM_EMAIL
+                      name: s3-credentials
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: AWS_SESSION_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-credentials
+                      key: AWS_SESSION_TOKEN
+                      optional: true
+                - name: AWS_REGION
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-credentials
+                      key: AWS_REGION
+                - name: AWS_S3_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-credentials
+                      key: AWS_S3_BUCKET
+                - name: AWS_S3_PREFIX
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-credentials
+                      key: AWS_S3_PREFIX
+                - name: AWS_S3_ENDPOINT
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-credentials
+                      key: AWS_S3_ENDPOINT
+                      optional: true
+                - name: AWS_S3_FORCE_PATH_STYLE
+                  valueFrom:
+                    secretKeyRef:
+                      name: s3-credentials
+                      key: AWS_S3_FORCE_PATH_STYLE
+                      optional: true
+                # Long-lived GET URLs for inline email images (max 7 days for SigV4).
+                - name: MATCH_EMAIL_IMAGE_TTL_SECONDS
+                  value: "604800"
+                - name: MAILTRAP_API_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: mailtrap-secrets
+                      key: MAILTRAP_API_TOKEN
+                - name: MAILTRAP_FROM_EMAIL
+                  valueFrom:
+                    secretKeyRef:
+                      name: mailtrap-secrets
+                      key: MAILTRAP_FROM_EMAIL
+                - name: MAILTRAP_FROM_NAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: mailtrap-secrets
+                      key: MAILTRAP_FROM_NAME
+                      optional: true
                 - name: PUBLIC_APP_BASE_URL
                   valueFrom:
                     secretKeyRef:
-                      name: sendgrid-secrets
+                      name: mailtrap-secrets
                       key: PUBLIC_APP_BASE_URL
                 - name: MATCH_MIN_SIMILARITY
                   valueFrom:
-                    secretKeyRef:
-                      name: sendgrid-secrets
+                    configMapKeyRef:
+                      name: app-config
                       key: MATCH_MIN_SIMILARITY
                 - name: MATCH_MAX_NOTIFS_PER_REPORT_PER_DAY
                   valueFrom:
                     secretKeyRef:
-                      name: sendgrid-secrets
+                      name: mailtrap-secrets
                       key: MATCH_MAX_NOTIFS_PER_REPORT_PER_DAY
                 - name: MATCH_MAX_NOTIFS_PER_PASSENGER_PER_DAY
                   valueFrom:
                     secretKeyRef:
-                      name: sendgrid-secrets
+                      name: mailtrap-secrets
                       key: MATCH_MAX_NOTIFS_PER_PASSENGER_PER_DAY
                 - name: MATCH_EMAIL_COOLDOWN_MINUTES
                   valueFrom:
                     secretKeyRef:
-                      name: sendgrid-secrets
+                      name: mailtrap-secrets
                       key: MATCH_EMAIL_COOLDOWN_MINUTES
                 - name: MATCH_EMAIL_MAX_ITEMS
                   valueFrom:
                     secretKeyRef:
-                      name: sendgrid-secrets
+                      name: mailtrap-secrets
                       key: MATCH_EMAIL_MAX_ITEMS
-

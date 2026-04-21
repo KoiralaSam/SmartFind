@@ -11,6 +11,7 @@ import (
 	"smartfind/services/staff-service/internal/core/domain"
 	"smartfind/services/staff-service/internal/core/ports/inbound"
 	"smartfind/services/staff-service/internal/core/ports/outbound"
+	"smartfind/shared/embedtext"
 	"smartfind/shared/env"
 	"smartfind/shared/jwt"
 	"smartfind/shared/openai"
@@ -184,6 +185,78 @@ func (s *StaffService) CreateFoundItem(ctx context.Context, in inbound.CreateFou
 	return created, nil
 }
 
+// embeddingFields are the twelve text slots whose content is vectorised.
+// We re-embed only when at least one of these changes.
+var embeddingFields = []func(inbound.UpdateFoundItemInput) string{
+	func(i inbound.UpdateFoundItemInput) string { return i.ItemName },
+	func(i inbound.UpdateFoundItemInput) string { return i.ItemDescription },
+	func(i inbound.UpdateFoundItemInput) string { return i.ItemType },
+	func(i inbound.UpdateFoundItemInput) string { return i.Brand },
+	func(i inbound.UpdateFoundItemInput) string { return i.Model },
+	func(i inbound.UpdateFoundItemInput) string { return i.Color },
+	func(i inbound.UpdateFoundItemInput) string { return i.Material },
+	func(i inbound.UpdateFoundItemInput) string { return i.ItemCondition },
+	func(i inbound.UpdateFoundItemInput) string { return i.Category },
+	func(i inbound.UpdateFoundItemInput) string { return i.LocationFound },
+	func(i inbound.UpdateFoundItemInput) string { return i.RouteOrStation },
+	func(i inbound.UpdateFoundItemInput) string { return i.RouteID },
+}
+
+func needsReEmbed(in inbound.UpdateFoundItemInput) bool {
+	for _, f := range embeddingFields {
+		if strings.TrimSpace(f(in)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func buildFoundItemEmbeddingTextFromUpdate(in inbound.UpdateFoundItemInput) string {
+	return embedtext.JoinNonEmpty([]embedtext.Pair{
+		{Slot: embedtext.SlotItemName, Value: in.ItemName},
+		{Slot: embedtext.SlotItemDescription, Value: in.ItemDescription},
+		{Slot: embedtext.SlotItemType, Value: in.ItemType},
+		{Slot: embedtext.SlotBrand, Value: in.Brand},
+		{Slot: embedtext.SlotModel, Value: in.Model},
+		{Slot: embedtext.SlotColor, Value: in.Color},
+		{Slot: embedtext.SlotMaterial, Value: in.Material},
+		{Slot: embedtext.SlotItemCondition, Value: in.ItemCondition},
+		{Slot: embedtext.SlotCategory, Value: in.Category},
+		{Slot: embedtext.SlotLocation, Value: in.LocationFound},
+		{Slot: embedtext.SlotRoute, Value: in.RouteOrStation},
+		{Slot: embedtext.SlotRouteID, Value: in.RouteID},
+	})
+}
+
+func (s *StaffService) UpdateFoundItem(ctx context.Context, in inbound.UpdateFoundItemInput) (*inbound.FoundItem, error) {
+	if strings.TrimSpace(in.StaffID) == "" || strings.TrimSpace(in.FoundItemID) == "" {
+		return nil, errors.New("staff_id and found_item_id are required")
+	}
+
+	updated, err := s.repo.UpdateFoundItem(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+
+	if needsReEmbed(in) {
+		embedding, embErr := openai.EmbedText(ctx, buildFoundItemEmbeddingTextFromUpdate(in))
+		if embErr != nil {
+			log.Printf("UpdateFoundItem: re-embed failed for found_item_id=%s: %v (embedding not updated)", updated.ID, embErr)
+		} else if upsertErr := s.repo.UpsertFoundItemEmbedding(ctx, updated.ID, embedding); upsertErr != nil {
+			log.Printf("UpdateFoundItem: upsert embedding failed for found_item_id=%s: %v", updated.ID, upsertErr)
+		}
+	}
+
+	return updated, nil
+}
+
+func (s *StaffService) DeleteFoundItem(ctx context.Context, in inbound.DeleteFoundItemInput) error {
+	if strings.TrimSpace(in.StaffID) == "" || strings.TrimSpace(in.FoundItemID) == "" {
+		return errors.New("staff_id and found_item_id are required")
+	}
+	return s.repo.DeleteFoundItem(ctx, in.FoundItemID)
+}
+
 func (s *StaffService) UpdateFoundItemStatus(ctx context.Context, in inbound.UpdateFoundItemStatusInput) (*inbound.FoundItem, error) {
 	if strings.TrimSpace(in.StaffID) == "" || strings.TrimSpace(in.FoundItemID) == "" {
 		return nil, errors.New("staff_id and found_item_id are required")
@@ -286,27 +359,18 @@ func validClaimStatusFilter(s string) bool {
 }
 
 func buildFoundItemEmbeddingText(in inbound.CreateFoundItemInput) string {
-	parts := []string{
-		in.ItemName,
-		in.ItemDescription,
-		in.ItemType,
-		in.Brand,
-		in.Model,
-		in.Color,
-		in.Material,
-		in.ItemCondition,
-		in.Category,
-		in.LocationFound,
-		in.RouteOrStation,
-		in.RouteID,
-	}
-
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		t := strings.TrimSpace(p)
-		if t != "" {
-			out = append(out, t)
-		}
-	}
-	return strings.Join(out, " | ")
+	return embedtext.JoinNonEmpty([]embedtext.Pair{
+		{Slot: embedtext.SlotItemName, Value: in.ItemName},
+		{Slot: embedtext.SlotItemDescription, Value: in.ItemDescription},
+		{Slot: embedtext.SlotItemType, Value: in.ItemType},
+		{Slot: embedtext.SlotBrand, Value: in.Brand},
+		{Slot: embedtext.SlotModel, Value: in.Model},
+		{Slot: embedtext.SlotColor, Value: in.Color},
+		{Slot: embedtext.SlotMaterial, Value: in.Material},
+		{Slot: embedtext.SlotItemCondition, Value: in.ItemCondition},
+		{Slot: embedtext.SlotCategory, Value: in.Category},
+		{Slot: embedtext.SlotLocation, Value: in.LocationFound},
+		{Slot: embedtext.SlotRoute, Value: in.RouteOrStation},
+		{Slot: embedtext.SlotRouteID, Value: in.RouteID},
+	})
 }

@@ -114,6 +114,40 @@ class CreateLostReportRequest(_message.Message):
     date_lost: _timestamp_pb2.Timestamp
     def __init__(self, passenger_id: _Optional[str] = ..., item_name: _Optional[str] = ..., item_description: _Optional[str] = ..., item_type: _Optional[str] = ..., brand: _Optional[str] = ..., model: _Optional[str] = ..., color: _Optional[str] = ..., material: _Optional[str] = ..., item_condition: _Optional[str] = ..., category: _Optional[str] = ..., location_lost: _Optional[str] = ..., route_or_station: _Optional[str] = ..., route_id: _Optional[str] = ..., date_lost: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
 
+class UpdateLostReportRequest(_message.Message):
+    __slots__ = ("passenger_id", "lost_report_id", "item_name", "item_description", "item_type", "brand", "model", "color", "material", "item_condition", "category", "location_lost", "route_or_station", "route_id", "date_lost")
+    PASSENGER_ID_FIELD_NUMBER: _ClassVar[int]
+    LOST_REPORT_ID_FIELD_NUMBER: _ClassVar[int]
+    ITEM_NAME_FIELD_NUMBER: _ClassVar[int]
+    ITEM_DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
+    ITEM_TYPE_FIELD_NUMBER: _ClassVar[int]
+    BRAND_FIELD_NUMBER: _ClassVar[int]
+    MODEL_FIELD_NUMBER: _ClassVar[int]
+    COLOR_FIELD_NUMBER: _ClassVar[int]
+    MATERIAL_FIELD_NUMBER: _ClassVar[int]
+    ITEM_CONDITION_FIELD_NUMBER: _ClassVar[int]
+    CATEGORY_FIELD_NUMBER: _ClassVar[int]
+    LOCATION_LOST_FIELD_NUMBER: _ClassVar[int]
+    ROUTE_OR_STATION_FIELD_NUMBER: _ClassVar[int]
+    ROUTE_ID_FIELD_NUMBER: _ClassVar[int]
+    DATE_LOST_FIELD_NUMBER: _ClassVar[int]
+    passenger_id: str
+    lost_report_id: str
+    item_name: str
+    item_description: str
+    item_type: str
+    brand: str
+    model: str
+    color: str
+    material: str
+    item_condition: str
+    category: str
+    location_lost: str
+    route_or_station: str
+    route_id: str
+    date_lost: _timestamp_pb2.Timestamp
+    def __init__(self, passenger_id: _Optional[str] = ..., lost_report_id: _Optional[str] = ..., item_name: _Optional[str] = ..., item_description: _Optional[str] = ..., item_type: _Optional[str] = ..., brand: _Optional[str] = ..., model: _Optional[str] = ..., color: _Optional[str] = ..., material: _Optional[str] = ..., item_condition: _Optional[str] = ..., category: _Optional[str] = ..., location_lost: _Optional[str] = ..., route_or_station: _Optional[str] = ..., route_id: _Optional[str] = ..., date_lost: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ...) -> None: ...
+
 class ListLostReportsRequest(_message.Message):
     __slots__ = ("passenger_id", "status")
     PASSENGER_ID_FIELD_NUMBER: _ClassVar[int]

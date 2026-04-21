@@ -12,6 +12,7 @@ from dotenv import load_dotenv, find_dotenv
 import websockets
 import base64
 import httpx
+from google.protobuf.json_format import MessageToDict
 from openai import OpenAI
 
 load_dotenv(find_dotenv())
@@ -260,6 +261,132 @@ def _looks_like_delete_lost_report(user_text: str) -> bool:
     if not t:
         return False
     return ("delete" in t or "remove" in t) and ("lost report" in t or "report" in t)
+
+
+# Stable marker used by the "which report?" prompt so we can recognize it in
+# the assistant history and resolve the passenger's next answer to a specific
+# lost_report_id.
+_CHECK_CHOICE_MARKER = "Which report should I check?"
+
+
+def _format_reports_choice_prompt(reports: list[dict]) -> str:
+    lines = []
+    for i, r in enumerate(reports, start=1):
+        name = (r.get("item_name") or "Unnamed").strip()
+        status = (r.get("status") or "open").strip()
+        lines.append(f"{i}. {name} — {status}")
+    listing = "\n".join(lines)
+    return (
+        "You have multiple open lost reports. "
+        + _CHECK_CHOICE_MARKER
+        + "\n\n"
+        + listing
+        + "\n\n"
+        "Reply with the number, the item name, or say \"most recent\" to check the latest."
+    )
+
+
+_UUID_RE = re.compile(
+    r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b",
+    re.IGNORECASE,
+)
+
+
+def _resolve_report_choice(user_text: str, reports: list[dict]) -> str:
+    """Given the passenger's reply after a choice prompt, return a report id.
+
+    Returns "" when the reply is vague or ambiguous. The caller may then
+    default to the most recent report.
+    """
+    if not reports:
+        return ""
+    t = (user_text or "").strip().lower()
+    if not t:
+        return ""
+
+    # Explicit UUID wins.
+    m = _UUID_RE.search(t)
+    if m:
+        rid = m.group(0)
+        for r in reports:
+            if str(r.get("id") or "").strip().lower() == rid.lower():
+                return str(r.get("id") or "")
+
+    # Numeric index (1-based).
+    mnum = re.search(r"\b(\d{1,2})\b", t)
+    if mnum:
+        try:
+            idx = int(mnum.group(1)) - 1
+            if 0 <= idx < len(reports):
+                return str(reports[idx].get("id") or "")
+        except ValueError:
+            pass
+
+    # Item-name contains match (case-insensitive).
+    for r in reports:
+        name = (r.get("item_name") or "").strip().lower()
+        if len(name) >= 3 and name in t:
+            return str(r.get("id") or "")
+
+    return ""
+
+
+def _answer_is_vague_choice(user_text: str) -> bool:
+    t = (user_text or "").strip().lower()
+    if not t:
+        return False
+    phrases = (
+        "most recent",
+        "latest",
+        "newest",
+        "last one",
+        "the last",
+        "any one",
+        "any",
+        "either",
+        "idk",
+        "i don't know",
+        "dont know",
+        "don't care",
+        "doesn't matter",
+        "doesnt matter",
+        "whatever",
+        "you pick",
+        "up to you",
+    )
+    return any(p in t for p in phrases)
+
+
+def _last_assistant_has_check_choice_prompt(conversation: list[dict]) -> bool:
+    for msg in reversed(conversation[:-1]):
+        if (msg.get("role") or "") == "assistant":
+            return _CHECK_CHOICE_MARKER in str(msg.get("content") or "")
+    return False
+
+
+def _force_check_ambiguity(reply_text: str) -> str:
+    """If the LLM emits a check_my_lost_item action without a specific
+    lost_report_id, force ``auto_default=False`` so the backend returns a
+    ``needs_choice`` signal instead of silently picking the most recent.
+    """
+    t = (reply_text or "").strip()
+    if not (t.startswith("{") and t.endswith("}")):
+        return reply_text
+    try:
+        obj = json.loads(t)
+    except Exception:
+        return reply_text
+    if not isinstance(obj, dict):
+        return reply_text
+    action = str(obj.get("action") or obj.get("intent") or "").strip().lower()
+    if action.replace("-", "_") != "check_my_lost_item":
+        return reply_text
+    data = obj.get("data") if isinstance(obj.get("data"), dict) else {}
+    if (str(data.get("lost_report_id") or "")).strip():
+        return reply_text
+    data["auto_default"] = False
+    obj["data"] = data
+    return json.dumps(obj)
 
 _COLOR_WORDS = {
     "black",
@@ -723,19 +850,53 @@ async def chat(req: ChatRequest):
             pass
         dispatch = None
         if req.passenger_id:
-            await _session_append_assistant(req.passenger_id, reply)
-            dispatch = await passenger_grpc.dispatch_from_chat_reply(
-                passenger_id=req.passenger_id,
-                chat_reply_text=reply,
-                forwarded_token=req.forwarded_token,
-            )
+            # If the previous assistant turn asked which lost report to check,
+            # resolve the passenger's reply deterministically instead of going
+            # through the LLM again.
+            if conversation and _last_assistant_has_check_choice_prompt(conversation):
+                last_user_text = str(conversation[-1].get("content", "") or "")
+                list_resp = await passenger_grpc.list_lost_reports(
+                    passenger_id=req.passenger_id,
+                    status="open",
+                    forwarded_token=req.forwarded_token,
+                )
+                list_dict = MessageToDict(list_resp, preserving_proto_field_name=True)
+                open_reports = list_dict.get("reports") or []
+                chosen_id = _resolve_report_choice(last_user_text, open_reports)
+                if not chosen_id and open_reports and _answer_is_vague_choice(last_user_text):
+                    chosen_id = str(open_reports[0].get("id") or "")
+                if chosen_id:
+                    dispatch = await passenger_grpc.dispatch_from_chat_reply(
+                        passenger_id=req.passenger_id,
+                        chat_reply_text=json.dumps(
+                            {
+                                "action": "check_my_lost_item",
+                                "data": {
+                                    "status": "open",
+                                    "limit": 10,
+                                    "lost_report_id": chosen_id,
+                                    "auto_default": True,
+                                },
+                            }
+                        ),
+                        forwarded_token=req.forwarded_token,
+                    )
+                    reply = "Got it — checking that report for matching found items…"
+
+            if dispatch is None:
+                await _session_append_assistant(req.passenger_id, reply)
+                dispatch = await passenger_grpc.dispatch_from_chat_reply(
+                    passenger_id=req.passenger_id,
+                    chat_reply_text=_force_check_ambiguity(reply),
+                    forwarded_token=req.forwarded_token,
+                )
             # Fallback: if the model failed to trigger the backend check, do it automatically.
             if dispatch is not None and dispatch.action == "none" and conversation:
                 last_user = conversation[-1].get("content", "")
                 if _looks_like_status_check(last_user):
                     dispatch = await passenger_grpc.dispatch_from_chat_reply(
                         passenger_id=req.passenger_id,
-                        chat_reply_text='{"action":"check_my_lost_item","data":{"status":"open","limit":10}}',
+                        chat_reply_text='{"action":"check_my_lost_item","data":{"status":"open","limit":10,"auto_default":false}}',
                         forwarded_token=req.forwarded_token,
                     )
                     reply = "Let me check your existing report for any matching found items…"
@@ -764,6 +925,52 @@ async def chat(req: ChatRequest):
         if dispatch is None:
             return ChatResponse(reply=reply, done=is_done(reply))
 
+        # If a check_my_lost_item dispatch came back needing disambiguation,
+        # first try to resolve the ambiguity from the user's original query
+        # (e.g. "find my keys" already names the item → no prompt needed).
+        # Only fall back to the choice prompt when the original message is
+        # genuinely ambiguous.
+        if (
+            dispatch.action == "check_my_lost_item"
+            and dispatch.ok
+            and isinstance(dispatch.data, dict)
+            and dispatch.data.get("needs_choice")
+        ):
+            reports_list = dispatch.data.get("reports") or []
+            # Attempt to resolve from the original user message that triggered
+            # this path, before forcing a follow-up question.
+            original_user_text = str(conversation[-1].get("content", "") or "") if conversation else ""
+            pre_chosen = _resolve_report_choice(original_user_text, reports_list)
+            if not pre_chosen and reports_list and _answer_is_vague_choice(original_user_text):
+                pre_chosen = str(reports_list[0].get("id") or "")
+
+            if pre_chosen:
+                # We resolved it — dispatch directly without prompting.
+                dispatch = await passenger_grpc.dispatch_from_chat_reply(
+                    passenger_id=req.passenger_id,
+                    chat_reply_text=json.dumps(
+                        {
+                            "action": "check_my_lost_item",
+                            "data": {
+                                "status": "open",
+                                "limit": 10,
+                                "lost_report_id": pre_chosen,
+                                "auto_default": True,
+                            },
+                        }
+                    ),
+                    forwarded_token=req.forwarded_token,
+                )
+                reply = "Got it — checking that report for matching found items…"
+            else:
+                prompt_reply = _format_reports_choice_prompt(reports_list)
+                if req.passenger_id:
+                    try:
+                        await _session_append_assistant(req.passenger_id, prompt_reply)
+                    except Exception:
+                        pass
+                return ChatResponse(reply=prompt_reply, done=False)
+
         return ChatResponse(
             reply=reply,
             done=is_done(reply),
@@ -783,6 +990,60 @@ class TTSRequest(BaseModel):
 class TTSResponse(BaseModel):
     mime: str
     audio_base64: str
+
+
+class ClaimRequest(BaseModel):
+    passenger_id: str
+    found_item_id: str
+    lost_report_id: str
+    message: str | None = None
+    forwarded_token: str | None = None
+
+
+class ClaimResponse(BaseModel):
+    ok: bool
+    data: dict | None = None
+    error: str | None = None
+
+
+@app.post("/claim", response_model=ClaimResponse)
+async def file_claim_direct(req: ClaimRequest):
+    """Deterministic claim endpoint that bypasses the LLM.
+
+    Takes a passenger_id + found_item_id + lost_report_id and calls the backend
+    FileClaim RPC directly. Used by the match-card 'File claim' button so the
+    claim action isn't routed back through the model.
+    """
+    passenger_id = (req.passenger_id or "").strip()
+    found_item_id = (req.found_item_id or "").strip()
+    lost_report_id = (req.lost_report_id or "").strip()
+    if not passenger_id or not found_item_id or not lost_report_id:
+        raise HTTPException(
+            status_code=400,
+            detail="passenger_id, found_item_id and lost_report_id are required",
+        )
+    payload = {
+        "action": "file_claim",
+        "data": {
+            "found_item_id": found_item_id,
+            "lost_report_id": lost_report_id,
+            "message": (req.message or "I believe this is my item.").strip(),
+        },
+    }
+    try:
+        dispatch = await passenger_grpc.dispatch_from_chat_reply(
+            passenger_id=passenger_id,
+            chat_reply_text=json.dumps(payload),
+            forwarded_token=req.forwarded_token,
+        )
+    except Exception as e:
+        logger.error(f"Direct file_claim error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="file_claim failed")
+
+    if dispatch is None:
+        return ClaimResponse(ok=False, error="dispatch returned no result")
+    return ClaimResponse(ok=dispatch.ok, data=dispatch.data, error=dispatch.error)
+
 
 def _deepgram_speak_url() -> str:
     # Default Deepgram Aura voice model.

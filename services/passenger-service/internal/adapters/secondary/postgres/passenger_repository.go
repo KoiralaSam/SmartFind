@@ -176,11 +176,50 @@ func (r *PassengerRepository) ListLostReports(ctx context.Context, passengerID s
 }
 
 func (r *PassengerRepository) DeleteLostReport(ctx context.Context, passengerID string, lostReportID string) error {
-	_, err := r.pool.Exec(ctx, `
+	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	var ownerID string
+	err = tx.QueryRow(ctx, `
+		SELECT reporter_passenger_id::text
+		FROM lost_reports
+		WHERE id = $1
+		FOR UPDATE
+	`, lostReportID).Scan(&ownerID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return outbound.ErrLostReportNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if ownerID != passengerID {
+		return outbound.ErrLostReportNotFound
+	}
+
+	var activeClaims int
+	err = tx.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM item_claims
+		WHERE lost_report_id = $1
+		  AND status IN ('pending', 'approved')
+	`, lostReportID).Scan(&activeClaims)
+	if err != nil {
+		return err
+	}
+	if activeClaims > 0 {
+		return outbound.ErrLostReportHasActiveClaims
+	}
+
+	if _, err := tx.Exec(ctx, `
 		DELETE FROM lost_reports
 		WHERE id = $1 AND reporter_passenger_id = $2
-	`, lostReportID, passengerID)
-	return err
+	`, lostReportID, passengerID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (r *PassengerRepository) CreateItemClaim(ctx context.Context, claim inbound.ItemClaim) (*inbound.ItemClaim, error) {
