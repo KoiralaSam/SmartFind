@@ -832,6 +832,7 @@ export default function StaffDashboard() {
 
     let cancelled = false;
     let stream = null;
+    const currentVideo = videoRef.current;
 
     (async () => {
       setCameraError(null);
@@ -871,7 +872,6 @@ export default function StaffDashboard() {
           return;
         }
         streamRef.current = stream;
-        const currentVideo = videoRef.current;
         if (currentVideo) {
           currentVideo.srcObject = stream;
           try {
@@ -908,7 +908,6 @@ export default function StaffDashboard() {
       cancelled = true;
       if (stream) stream.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
-      const currentVideo = videoRef.current;
       if (currentVideo) currentVideo.srcObject = null;
     };
   }, [cameraOpen]);

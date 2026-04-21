@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -77,7 +77,9 @@ async function geocode(name) {
     const data = await res.json();
     if (data?.length > 0)
       return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-  } catch {}
+  } catch {
+    // Best-effort geocoding; fallback handled by returning null.
+  }
   return null;
 }
 
@@ -278,7 +280,9 @@ export default function AnalyticsPanel() {
           setTemporalByDay(json.by_day_of_week ?? null);
           setTemporalReports(json.reports ?? null);
         }
-      } catch {}
+      } catch {
+        // Non-blocking: keep previous temporal data if refresh fails.
+      }
     }
     loadTemporal();
     const interval = setInterval(loadTemporal, 60000);

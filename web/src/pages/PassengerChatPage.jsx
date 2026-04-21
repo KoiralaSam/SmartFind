@@ -575,7 +575,7 @@ export default function PassengerChatPage() {
           },
         ]);
       };
-    } catch (e) {
+    } catch {
       setMessages((m) => [
         ...m,
         {
