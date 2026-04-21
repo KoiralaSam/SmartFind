@@ -28,6 +28,7 @@ import {
   staffDeleteFoundItem,
   mediaInitUploads,
   mediaDeleteUpload,
+  extractImageDetails,
 } from "../api/gateway";
 import AnalyticsPanel from "./AnalyticsPanel";
 import StaffTransitRoutesPage from "./StaffTransitRoutesPage";
@@ -706,21 +707,7 @@ export default function StaffDashboard() {
       setExtractingCount((n) => n + 1);
       setExtractError(null);
       try {
-        const res = await fetch("/api/extract", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ image_base64: photo.data }),
-        });
-        if (!res.ok) {
-          const payload = await res.json().catch(() => null);
-          const msg =
-            payload?.error ||
-            payload?.detail ||
-            `Failed to analyze image (HTTP ${res.status})`;
-          throw new Error(msg);
-        }
-        const data = await res.json();
+        const data = await extractImageDetails(photo.data);
         setExtractionFindings((prev) => [
           ...prev,
           { photoId: photo.id, details: data },
