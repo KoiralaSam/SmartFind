@@ -9,7 +9,7 @@ data:
   PUBLIC_CHAT_AGENT_URL: "http://chat-agent:8090"
   PUBLIC_DETAIL_EXTRACTER_URL: "http://detail-extracter-agent:8091"
   ANALYTICS_URL: "http://predictive-analytics-agent:8092"
-  CORS_ALLOWED_ORIGINS: "http://localhost:5173,http://134.199.177.173:5173,http://smartfind.samarpankoirala.tech,https://smartfind.samarpankoirala.tech,http://www.smartfind.samarpankoirala.tech,https://www.smartfind.samarpankoirala.tech"
+  CORS_ALLOWED_ORIGINS: "http://localhost:5173,http://134.199.177.173:5173,http://samarpankoirala.tech,https://samarpankoirala.tech,http://www.samarpankoirala.tech,https://www.samarpankoirala.tech,http://smartfind.samarpankoirala.tech,https://smartfind.samarpankoirala.tech,http://www.smartfind.samarpankoirala.tech,https://www.smartfind.samarpankoirala.tech"
   PASSENGER_GRPC_ADDR: ":50051"
   PASSENGER_SERVICE_ADDRESS: "passenger-service:50051"
   STAFF_SERVICE_ADDRESS: "staff-service:50052"

@@ -14,6 +14,8 @@ export default defineConfig(({ mode }) => {
       // Add your current ngrok domain here (or set VITE_ALLOWED_HOSTS as a comma-separated list).
       allowedHosts: [
         "unpolemical-spinier-chana.ngrok-free.dev",
+        "samarpankoirala.tech",
+        "www.samarpankoirala.tech",
         "smartfind.samarpankoirala.tech",
         "www.smartfind.samarpankoirala.tech",
         "api.smartfind.samarpankoirala.tech",

@@ -81,7 +81,7 @@ metadata:
     app: api-gateway
   annotations:
     service.beta.kubernetes.io/do-loadbalancer-type: "REGIONAL"
-    service.beta.kubernetes.io/do-loadbalancer-certificate-name: "smartfind-samarpankoirala-tech-www"
+    service.beta.kubernetes.io/do-loadbalancer-certificate-name: "smartfind-samarpankoirala-tech-root"
     service.beta.kubernetes.io/do-loadbalancer-http-ports: "80"
     service.beta.kubernetes.io/do-loadbalancer-tls-ports: "443"
     service.beta.kubernetes.io/do-loadbalancer-redirect-http-to-https: "true"
