@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	grpcclients "smartfind/services/api-gateway/grpc_clients"
+	"smartfind/shared/env"
 	"smartfind/shared/grpcclient"
 
 	passengerpb "smartfind/shared/proto/passenger"
@@ -116,7 +118,7 @@ func passengerListMyClaimsHandler(w http.ResponseWriter, r *http.Request) {
 	defer client.Close()
 
 	ctx := grpcclient.WithForwardedToken(r.Context(), forwarded)
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	resp, err := client.Client.ListMyClaims(ctx, &passengerpb.ListMyClaimsRequest{
@@ -128,6 +130,57 @@ func passengerListMyClaimsHandler(w http.ResponseWriter, r *http.Request) {
 		writeGRPCError(w, err)
 		return
 	}
+
+	// Enrich with found-item details + presigned image URLs (same shape as match cards)
+	// without changing passenger.proto: reuse SearchFoundItemMatches per lost report.
+	matchByFoundItemID := map[string]*passengerpb.FoundItemMatch{}
+	notificationByFoundItemID := map[string]*passengerpb.PassengerMatchNotification{}
+	seenLostReport := map[string]struct{}{}
+	for _, c := range resp.GetClaims() {
+		if c == nil {
+			continue
+		}
+		lr := strings.TrimSpace(c.GetLostReportId())
+		if lr == "" {
+			continue
+		}
+		if _, ok := seenLostReport[lr]; ok {
+			continue
+		}
+		seenLostReport[lr] = struct{}{}
+		mr, err := client.Client.SearchFoundItemMatches(ctx, &passengerpb.SearchFoundItemMatchesRequest{
+			LostReportId: lr,
+			Limit:        100,
+		})
+		if err != nil {
+			continue
+		}
+		for _, m := range mr.GetMatches() {
+			if m == nil {
+				continue
+			}
+			fid := strings.TrimSpace(m.GetFoundItemId())
+			if fid == "" {
+				continue
+			}
+			matchByFoundItemID[fid] = m
+		}
+	}
+	// Fallback enrichment source: notifications keep item name/image snapshots
+	// even after the found item is no longer returned by match search.
+	if nr, err := client.Client.ListNotifications(ctx, &passengerpb.ListNotificationsRequest{Limit: 200}); err == nil {
+		for _, n := range nr.GetNotifications() {
+			if n == nil {
+				continue
+			}
+			fid := strings.TrimSpace(n.GetFoundItemId())
+			if fid == "" {
+				continue
+			}
+			notificationByFoundItemID[fid] = n
+		}
+	}
+	foundItemStatusByID := loadFoundItemStatusByIDs(r.Context(), resp.GetClaims())
 
 	claims := make([]ItemClaimDTO, 0, len(resp.GetClaims()))
 	for _, c := range resp.GetClaims() {
@@ -142,7 +195,7 @@ func passengerListMyClaimsHandler(w http.ResponseWriter, r *http.Request) {
 		if c.GetUpdatedAt() != nil {
 			updatedAt = c.GetUpdatedAt().AsTime()
 		}
-		claims = append(claims, ItemClaimDTO{
+		dto := ItemClaimDTO{
 			ID:                  c.GetId(),
 			ItemID:              c.GetItemId(),
 			ClaimantPassengerID: c.GetClaimantPassengerId(),
@@ -151,9 +204,140 @@ func passengerListMyClaimsHandler(w http.ResponseWriter, r *http.Request) {
 			Status:              c.GetStatus(),
 			CreatedAt:           createdAt,
 			UpdatedAt:           updatedAt,
-		})
+		}
+		if m := matchByFoundItemID[strings.TrimSpace(c.GetItemId())]; m != nil {
+			dto.FoundItem = passengerFoundItemMatchPBToDTO(m)
+		} else if n := notificationByFoundItemID[strings.TrimSpace(c.GetItemId())]; n != nil {
+			dto.FoundItem = passengerFoundItemFromNotificationPBToDTO(n, c.GetItemId(), c.GetStatus())
+		}
+		if dto.FoundItem != nil {
+			claimStatus := strings.ToLower(strings.TrimSpace(dto.Status))
+			if claimStatus == "" || claimStatus == "pending" {
+				dto.Status = "matched"
+			}
+		}
+		if dto.FoundItem != nil && strings.EqualFold(strings.TrimSpace(dto.FoundItem.Status), "claimed") {
+			// Passenger-facing UX: once staff marks the item claimed/returned,
+			// reflect that terminal state directly on the claim card.
+			dto.Status = "claimed"
+		}
+		if strings.EqualFold(strings.TrimSpace(foundItemStatusByID[strings.TrimSpace(dto.ItemID)]), "claimed") {
+			dto.Status = "claimed"
+			if dto.FoundItem != nil {
+				dto.FoundItem.Status = "claimed"
+			}
+		}
+		claims = append(claims, dto)
 	}
 	writeJSON(w, http.StatusOK, PassengerListClaimsResponse{Claims: claims})
+}
+
+func loadFoundItemStatusByIDs(ctx context.Context, claims []*passengerpb.ItemClaim) map[string]string {
+	out := map[string]string{}
+	seen := map[string]struct{}{}
+	ids := make([]string, 0, len(claims))
+	for _, c := range claims {
+		if c == nil {
+			continue
+		}
+		id := strings.TrimSpace(c.GetItemId())
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return out
+	}
+
+	dbURL := strings.TrimSpace(env.GetString("DATABASE_URL", ""))
+	if dbURL == "" {
+		return out
+	}
+	pool, err := pgxpool.New(ctx, dbURL)
+	if err != nil {
+		return out
+	}
+	defer pool.Close()
+
+	rows, err := pool.Query(ctx, `
+		SELECT id::text, status::text
+		FROM found_items
+		WHERE id::text = ANY($1::text[])
+	`, ids)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var id, status string
+		if err := rows.Scan(&id, &status); err != nil {
+			continue
+		}
+		out[strings.TrimSpace(id)] = strings.TrimSpace(status)
+	}
+	return out
+}
+
+func passengerFoundItemMatchPBToDTO(m *passengerpb.FoundItemMatch) *PassengerClaimFoundItemDTO {
+	if m == nil {
+		return nil
+	}
+	var df time.Time
+	if m.GetDateFound() != nil {
+		df = m.GetDateFound().AsTime()
+	}
+	return &PassengerClaimFoundItemDTO{
+		FoundItemID:     m.GetFoundItemId(),
+		ItemName:        m.GetItemName(),
+		ItemDescription: m.GetItemDescription(),
+		ItemType:        m.GetItemType(),
+		Brand:           m.GetBrand(),
+		Model:           m.GetModel(),
+		Color:           m.GetColor(),
+		Material:        m.GetMaterial(),
+		ItemCondition:   m.GetItemCondition(),
+		Category:        m.GetCategory(),
+		LocationFound:   m.GetLocationFound(),
+		RouteOrStation:  m.GetRouteOrStation(),
+		RouteID:         m.GetRouteId(),
+		DateFound:       df,
+		Status:          m.GetStatus(),
+		SimilarityScore: m.GetSimilarityScore(),
+		ImageURLs:       append([]string(nil), m.GetImageUrls()...),
+		PrimaryImageURL: m.GetPrimaryImageUrl(),
+	}
+}
+
+func passengerFoundItemFromNotificationPBToDTO(n *passengerpb.PassengerMatchNotification, itemID string, claimStatus string) *PassengerClaimFoundItemDTO {
+	if n == nil {
+		return nil
+	}
+	status := "unclaimed"
+	switch strings.ToLower(strings.TrimSpace(claimStatus)) {
+	case "approved":
+		status = "claimed"
+	case "rejected", "cancelled":
+		status = "unclaimed"
+	}
+	urls := append([]string(nil), n.GetImageUrls()...)
+	primary := strings.TrimSpace(n.GetPrimaryImageUrl())
+	if primary == "" && len(urls) > 0 {
+		primary = urls[0]
+	}
+	return &PassengerClaimFoundItemDTO{
+		FoundItemID:     strings.TrimSpace(itemID),
+		ItemName:        n.GetItemName(),
+		Status:          status,
+		SimilarityScore: n.GetSimilarityScore(),
+		ImageURLs:       urls,
+		PrimaryImageURL: primary,
+	}
 }
 
 type PassengerFileClaimRequest struct {

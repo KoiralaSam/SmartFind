@@ -8,6 +8,7 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from dotenv import load_dotenv, find_dotenv
 import websockets
 import base64
@@ -203,16 +204,20 @@ _SESSION_TTL_SECONDS = 30 * 60
 _SESSION_MAX_MESSAGES = 60
 _session_lock = asyncio.Lock()
 _sessions: dict[str, dict] = {}
+_CENTRAL_TZ = ZoneInfo("America/Chicago")
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
+def _central_now() -> datetime:
+    return datetime.now(_CENTRAL_TZ)
+
 def _today_iso() -> str:
-    return _utc_now().date().isoformat()
+    return _central_now().date().isoformat()
 
 def _resolve_relative_date_words(text: str) -> str:
     lower = (text or "").strip().lower()
-    today = _utc_now().date()
+    today = _central_now().date()
     if "day before yesterday" in lower:
         return (today - timedelta(days=2)).isoformat()
     if "yesterday" in lower:
@@ -685,6 +690,22 @@ def _extract_slots_from_conversation(conversation: List[dict]) -> dict:
 def _missing_slots(state: dict) -> list[str]:
     return [k for k in _SLOT_ORDER if not str(state.get(k) or "").strip()]
 
+def _looks_like_intake_confirmation(user_text: str) -> bool:
+    t = (user_text or "").strip().lower()
+    if not t:
+        return False
+    if re.search(r"\b(yes|yep|yeah|correct|confirmed|confirm)\b", t):
+        return True
+    if "everything is correct" in t or "looks correct" in t:
+        return True
+    if "submit" in t or "file it" in t or "go ahead" in t:
+        return True
+    return False
+
+def _final_intake_json_from_state(state: dict) -> str:
+    payload = {k: str(state.get(k) or "").strip() for k in _SLOT_ORDER}
+    return json.dumps(payload)
+
 def _slot_question(slot: str) -> str:
     if slot == "item_name":
         return "What item did you lose?"
@@ -763,7 +784,7 @@ def call_openai(conversation: List[dict]) -> str:
         messages.append(
             {
                 "role": "system",
-                "content": f"Current date (UTC) is {_today_iso()}. Use this to resolve words like today/yesterday.\n"
+                "content": f"Current date (Central Time) is {_today_iso()}. Use this to resolve words like today/yesterday.\n"
                 + "Known fields so far (do not ask again for these): "
                 + json.dumps(state)
                 + "\nMissing fields (ask ONLY for the next one): "
@@ -841,7 +862,24 @@ async def chat(req: ChatRequest):
         conversation = incoming
         if req.passenger_id:
             conversation = await _session_conversation_for_request(req.passenger_id, incoming)
-        reply = await asyncio.to_thread(call_openai, conversation)
+        # Deterministic confirmation handoff: when all intake slots are present
+        # and the user confirms/asks to submit, bypass potential LLM drift and
+        # emit the final intake JSON directly.
+        reply = ""
+        try:
+            state = _extract_slots_from_conversation(conversation)
+            missing = _missing_slots(state)
+            last_user_text = ""
+            for m in reversed(conversation):
+                if (m.get("role") or "").strip() == "user":
+                    last_user_text = str(m.get("content") or "")
+                    break
+            if (not missing) and _looks_like_intake_confirmation(last_user_text):
+                reply = _final_intake_json_from_state(state)
+            else:
+                reply = await asyncio.to_thread(call_openai, conversation)
+        except Exception:
+            reply = await asyncio.to_thread(call_openai, conversation)
         try:
             override = _maybe_override_reply(reply, conversation)
             if override:

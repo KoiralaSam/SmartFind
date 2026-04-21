@@ -55,15 +55,33 @@ func forwardedTokenFromRequest(r *http.Request) string {
 		return authHeader
 	}
 
-	// Fall back to cookies used by the gateway login flows.
-	if c, err := r.Cookie("staff_session"); err == nil {
-		if v := strings.TrimSpace(c.Value); v != "" {
-			return v
+	// Fall back to cookies used by the gateway login flows. When both staff and
+	// passenger sessions exist in one browser, pick the cookie that matches the
+	// request path so passenger APIs are not authenticated as staff.
+	path := r.URL.Path
+	switch {
+	case strings.HasPrefix(path, "/passenger/"):
+		if c, err := r.Cookie("passenger_session"); err == nil {
+			if v := strings.TrimSpace(c.Value); v != "" {
+				return v
+			}
 		}
-	}
-	if c, err := r.Cookie("passenger_session"); err == nil {
-		if v := strings.TrimSpace(c.Value); v != "" {
-			return v
+	case strings.HasPrefix(path, "/staff/"):
+		if c, err := r.Cookie("staff_session"); err == nil {
+			if v := strings.TrimSpace(c.Value); v != "" {
+				return v
+			}
+		}
+	default:
+		if c, err := r.Cookie("staff_session"); err == nil {
+			if v := strings.TrimSpace(c.Value); v != "" {
+				return v
+			}
+		}
+		if c, err := r.Cookie("passenger_session"); err == nil {
+			if v := strings.TrimSpace(c.Value); v != "" {
+				return v
+			}
 		}
 	}
 
@@ -620,8 +638,23 @@ func staffListClaimsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := make([]ItemClaimDTO, 0, len(resp.GetClaims()))
+	passengerIDs := make([]string, 0, len(resp.GetClaims()))
 	for _, c := range resp.GetClaims() {
-		claims = append(claims, itemClaimPBToDTO(c))
+		dto := itemClaimPBToDTO(c)
+		claims = append(claims, dto)
+		if strings.TrimSpace(dto.ClaimantPassengerID) != "" {
+			passengerIDs = append(passengerIDs, dto.ClaimantPassengerID)
+		}
+	}
+	passengerProfiles := loadPassengerProfilesByIDsViaRPC(r.Context(), forwarded, passengerIDs)
+	for i := range claims {
+		p := passengerProfiles[strings.TrimSpace(claims[i].ClaimantPassengerID)]
+		if strings.TrimSpace(claims[i].ClaimantName) == "" {
+			claims[i].ClaimantName = p.Name
+		}
+		if strings.TrimSpace(claims[i].ClaimantEmail) == "" {
+			claims[i].ClaimantEmail = p.Email
+		}
 	}
 	writeJSON(w, http.StatusOK, StaffListClaimsResponse{Claims: claims})
 }
@@ -949,6 +982,56 @@ func itemClaimPBToDTO(c *staffpb.ItemClaim) ItemClaimDTO {
 		CreatedAt:           timestampToTime(c.GetCreatedAt()),
 		UpdatedAt:           timestampToTime(c.GetUpdatedAt()),
 	}
+}
+
+type passengerProfile struct {
+	Name  string
+	Email string
+}
+
+func loadPassengerProfilesByIDsViaRPC(ctx context.Context, forwarded string, ids []string) map[string]passengerProfile {
+	out := map[string]passengerProfile{}
+	unique := make([]string, 0, len(ids))
+	seen := map[string]struct{}{}
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
+		return out
+	}
+	forwarded = strings.TrimSpace(forwarded)
+	if forwarded == "" {
+		return out
+	}
+
+	passengerClient, err := grpcclients.NewPassengerGRPCClient()
+	if err != nil {
+		return out
+	}
+	defer passengerClient.Close()
+
+	rpcCtx := grpcclient.WithForwardedToken(ctx, forwarded)
+	for _, id := range unique {
+		resp, err := passengerClient.Client.GetPassenger(rpcCtx, &passengerpb.GetPassengerRequest{
+			PassengerId: id,
+		})
+		if err != nil || resp == nil {
+			continue
+		}
+		out[id] = passengerProfile{
+			Name:  strings.TrimSpace(resp.GetFullName()),
+			Email: strings.TrimSpace(resp.GetEmail()),
+		}
+	}
+	return out
 }
 
 func routePBToDTO(rt *staffpb.Route) RouteDTO {
