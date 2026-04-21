@@ -10,6 +10,7 @@ import "google/protobuf/timestamp.proto";
 service PassengerService {
   rpc Login(LoginRequest) returns (LoginResponse);
   rpc CreateLostReport(CreateLostReportRequest) returns (LostReport);
+  rpc UpdateLostReport(UpdateLostReportRequest) returns (LostReport);
   rpc ListLostReports(ListLostReportsRequest) returns (ListLostReportsResponse);
   rpc DeleteLostReport(DeleteLostReportRequest) returns (google.protobuf.Empty);
   rpc SearchFoundItemMatches(SearchFoundItemMatchesRequest) returns (SearchFoundItemMatchesResponse);
@@ -74,6 +75,30 @@ message CreateLostReportRequest {
   string route_or_station = 12;
   string route_id = 13;
   google.protobuf.Timestamp date_lost = 14;
+}
+
+// UpdateLostReportRequest patches any subset of the free-form fields on a
+// lost report owned by `passenger_id`. Fields left as the proto default
+// (empty string / zero timestamp) are ignored — clients wanting to clear a
+// field should send a single space or update an adjacent field. When any of
+// the twelve slots that feed the match embedding change, the passenger
+// service re-computes the embedding and upserts it.
+message UpdateLostReportRequest {
+  string passenger_id = 1;
+  string lost_report_id = 2;
+  string item_name = 3;
+  string item_description = 4;
+  string item_type = 5;
+  string brand = 6;
+  string model = 7;
+  string color = 8;
+  string material = 9;
+  string item_condition = 10;
+  string category = 11;
+  string location_lost = 12;
+  string route_or_station = 13;
+  string route_id = 14;
+  google.protobuf.Timestamp date_lost = 15;
 }
 
 message ListLostReportsRequest {

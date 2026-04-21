@@ -75,6 +75,16 @@ class StaffServiceStub(object):
                 request_serializer=staff__pb2.SearchFoundItemMatchesByEmbeddingRequest.SerializeToString,
                 response_deserializer=staff__pb2.SearchFoundItemMatchesByEmbeddingResponse.FromString,
                 _registered_method=True)
+        self.UpdateFoundItem = channel.unary_unary(
+                '/smartfind.staff.v1.StaffService/UpdateFoundItem',
+                request_serializer=staff__pb2.UpdateFoundItemRequest.SerializeToString,
+                response_deserializer=staff__pb2.FoundItem.FromString,
+                _registered_method=True)
+        self.DeleteFoundItem = channel.unary_unary(
+                '/smartfind.staff.v1.StaffService/DeleteFoundItem',
+                request_serializer=staff__pb2.DeleteFoundItemRequest.SerializeToString,
+                response_deserializer=google_dot_protobuf_dot_empty__pb2.Empty.FromString,
+                _registered_method=True)
         self.ListClaims = channel.unary_unary(
                 '/smartfind.staff.v1.StaffService/ListClaims',
                 request_serializer=staff__pb2.ListClaimsRequest.SerializeToString,
@@ -156,6 +166,26 @@ class StaffServiceServicer(object):
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def UpdateFoundItem(self, request, context):
+        """Edits the free-form descriptive fields of a found item owned by the
+        calling staff member. Any of the twelve embedding slots that changed
+        causes the service to regenerate and upsert the item's embedding so
+        future similarity searches reflect the correction. Image keys may
+        also be replaced in the same call.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DeleteFoundItem(self, request, context):
+        """Hard-deletes a found item posted by the calling staff member.
+        Cascades to found_item_embeddings and rejects when any pending or
+        approved claim exists for the item.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
     def ListClaims(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
@@ -228,6 +258,16 @@ def add_StaffServiceServicer_to_server(servicer, server):
                     servicer.SearchFoundItemMatchesByEmbedding,
                     request_deserializer=staff__pb2.SearchFoundItemMatchesByEmbeddingRequest.FromString,
                     response_serializer=staff__pb2.SearchFoundItemMatchesByEmbeddingResponse.SerializeToString,
+            ),
+            'UpdateFoundItem': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateFoundItem,
+                    request_deserializer=staff__pb2.UpdateFoundItemRequest.FromString,
+                    response_serializer=staff__pb2.FoundItem.SerializeToString,
+            ),
+            'DeleteFoundItem': grpc.unary_unary_rpc_method_handler(
+                    servicer.DeleteFoundItem,
+                    request_deserializer=staff__pb2.DeleteFoundItemRequest.FromString,
+                    response_serializer=google_dot_protobuf_dot_empty__pb2.Empty.SerializeToString,
             ),
             'ListClaims': grpc.unary_unary_rpc_method_handler(
                     servicer.ListClaims,
@@ -471,6 +511,60 @@ class StaffService(object):
             '/smartfind.staff.v1.StaffService/SearchFoundItemMatchesByEmbedding',
             staff__pb2.SearchFoundItemMatchesByEmbeddingRequest.SerializeToString,
             staff__pb2.SearchFoundItemMatchesByEmbeddingResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpdateFoundItem(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/smartfind.staff.v1.StaffService/UpdateFoundItem',
+            staff__pb2.UpdateFoundItemRequest.SerializeToString,
+            staff__pb2.FoundItem.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DeleteFoundItem(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/smartfind.staff.v1.StaffService/DeleteFoundItem',
+            staff__pb2.DeleteFoundItemRequest.SerializeToString,
+            google_dot_protobuf_dot_empty__pb2.Empty.FromString,
             options,
             channel_credentials,
             insecure,

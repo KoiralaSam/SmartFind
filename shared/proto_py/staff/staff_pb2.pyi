@@ -203,6 +203,52 @@ class FoundItemMatch(_message.Message):
     similarity_score: float
     def __init__(self, item: _Optional[_Union[FoundItem, _Mapping]] = ..., similarity_score: _Optional[float] = ...) -> None: ...
 
+class UpdateFoundItemRequest(_message.Message):
+    __slots__ = ("staff_id", "found_item_id", "item_name", "item_description", "item_type", "brand", "model", "color", "material", "item_condition", "category", "location_found", "route_or_station", "route_id", "date_found", "image_keys", "primary_image_key")
+    STAFF_ID_FIELD_NUMBER: _ClassVar[int]
+    FOUND_ITEM_ID_FIELD_NUMBER: _ClassVar[int]
+    ITEM_NAME_FIELD_NUMBER: _ClassVar[int]
+    ITEM_DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
+    ITEM_TYPE_FIELD_NUMBER: _ClassVar[int]
+    BRAND_FIELD_NUMBER: _ClassVar[int]
+    MODEL_FIELD_NUMBER: _ClassVar[int]
+    COLOR_FIELD_NUMBER: _ClassVar[int]
+    MATERIAL_FIELD_NUMBER: _ClassVar[int]
+    ITEM_CONDITION_FIELD_NUMBER: _ClassVar[int]
+    CATEGORY_FIELD_NUMBER: _ClassVar[int]
+    LOCATION_FOUND_FIELD_NUMBER: _ClassVar[int]
+    ROUTE_OR_STATION_FIELD_NUMBER: _ClassVar[int]
+    ROUTE_ID_FIELD_NUMBER: _ClassVar[int]
+    DATE_FOUND_FIELD_NUMBER: _ClassVar[int]
+    IMAGE_KEYS_FIELD_NUMBER: _ClassVar[int]
+    PRIMARY_IMAGE_KEY_FIELD_NUMBER: _ClassVar[int]
+    staff_id: str
+    found_item_id: str
+    item_name: str
+    item_description: str
+    item_type: str
+    brand: str
+    model: str
+    color: str
+    material: str
+    item_condition: str
+    category: str
+    location_found: str
+    route_or_station: str
+    route_id: str
+    date_found: _timestamp_pb2.Timestamp
+    image_keys: _containers.RepeatedScalarFieldContainer[str]
+    primary_image_key: str
+    def __init__(self, staff_id: _Optional[str] = ..., found_item_id: _Optional[str] = ..., item_name: _Optional[str] = ..., item_description: _Optional[str] = ..., item_type: _Optional[str] = ..., brand: _Optional[str] = ..., model: _Optional[str] = ..., color: _Optional[str] = ..., material: _Optional[str] = ..., item_condition: _Optional[str] = ..., category: _Optional[str] = ..., location_found: _Optional[str] = ..., route_or_station: _Optional[str] = ..., route_id: _Optional[str] = ..., date_found: _Optional[_Union[datetime.datetime, _timestamp_pb2.Timestamp, _Mapping]] = ..., image_keys: _Optional[_Iterable[str]] = ..., primary_image_key: _Optional[str] = ...) -> None: ...
+
+class DeleteFoundItemRequest(_message.Message):
+    __slots__ = ("staff_id", "found_item_id")
+    STAFF_ID_FIELD_NUMBER: _ClassVar[int]
+    FOUND_ITEM_ID_FIELD_NUMBER: _ClassVar[int]
+    staff_id: str
+    found_item_id: str
+    def __init__(self, staff_id: _Optional[str] = ..., found_item_id: _Optional[str] = ...) -> None: ...
+
 class UpdateFoundItemStatusRequest(_message.Message):
     __slots__ = ("staff_id", "found_item_id", "status")
     STAFF_ID_FIELD_NUMBER: _ClassVar[int]

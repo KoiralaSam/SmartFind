@@ -59,14 +59,61 @@ spec:
                   key: INTERNAL_SERVICE_SECRET
             - name: MATCH_MIN_SIMILARITY
               valueFrom:
-                secretKeyRef:
-                  name: sendgrid-secrets
+                configMapKeyRef:
+                  name: app-config
                   key: MATCH_MIN_SIMILARITY
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: openai-api-key
                   key: OPENAI_API_KEY
+            # S3 credentials are required so ListNotifications can presign
+            # image keys stored in found_items into fresh short-lived URLs.
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_SESSION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_SESSION_TOKEN
+            - name: AWS_REGION
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_REGION
+            - name: AWS_S3_BUCKET
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_S3_BUCKET
+            - name: AWS_S3_PREFIX
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_S3_PREFIX
+            - name: AWS_S3_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_S3_ENDPOINT
+            - name: AWS_S3_FORCE_PATH_STYLE
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_S3_FORCE_PATH_STYLE
+            - name: AWS_S3_PRESIGN_GET_TTL_SECONDS
+              valueFrom:
+                secretKeyRef:
+                  name: s3-credentials
+                  key: AWS_S3_PRESIGN_GET_TTL_SECONDS
           readinessProbe:
             tcpSocket:
               port: grpc

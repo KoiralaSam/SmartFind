@@ -45,6 +45,11 @@ class PassengerServiceStub(object):
                 request_serializer=passenger__pb2.CreateLostReportRequest.SerializeToString,
                 response_deserializer=passenger__pb2.LostReport.FromString,
                 _registered_method=True)
+        self.UpdateLostReport = channel.unary_unary(
+                '/smartfind.passenger.v1.PassengerService/UpdateLostReport',
+                request_serializer=passenger__pb2.UpdateLostReportRequest.SerializeToString,
+                response_deserializer=passenger__pb2.LostReport.FromString,
+                _registered_method=True)
         self.ListLostReports = channel.unary_unary(
                 '/smartfind.passenger.v1.PassengerService/ListLostReports',
                 request_serializer=passenger__pb2.ListLostReportsRequest.SerializeToString,
@@ -92,6 +97,12 @@ class PassengerServiceServicer(object):
         raise NotImplementedError('Method not implemented!')
 
     def CreateLostReport(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def UpdateLostReport(self, request, context):
         """Missing associated documentation comment in .proto file."""
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
@@ -150,6 +161,11 @@ def add_PassengerServiceServicer_to_server(servicer, server):
             'CreateLostReport': grpc.unary_unary_rpc_method_handler(
                     servicer.CreateLostReport,
                     request_deserializer=passenger__pb2.CreateLostReportRequest.FromString,
+                    response_serializer=passenger__pb2.LostReport.SerializeToString,
+            ),
+            'UpdateLostReport': grpc.unary_unary_rpc_method_handler(
+                    servicer.UpdateLostReport,
+                    request_deserializer=passenger__pb2.UpdateLostReportRequest.FromString,
                     response_serializer=passenger__pb2.LostReport.SerializeToString,
             ),
             'ListLostReports': grpc.unary_unary_rpc_method_handler(
@@ -241,6 +257,33 @@ class PassengerService(object):
             target,
             '/smartfind.passenger.v1.PassengerService/CreateLostReport',
             passenger__pb2.CreateLostReportRequest.SerializeToString,
+            passenger__pb2.LostReport.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def UpdateLostReport(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/smartfind.passenger.v1.PassengerService/UpdateLostReport',
+            passenger__pb2.UpdateLostReportRequest.SerializeToString,
             passenger__pb2.LostReport.FromString,
             options,
             channel_credentials,

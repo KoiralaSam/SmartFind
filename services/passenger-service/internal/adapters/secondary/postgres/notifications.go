@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"smartfind/services/passenger-service/internal/core/ports/inbound"
+	"smartfind/shared/s3media"
 )
 
 func (r *PassengerRepository) ListNotifications(ctx context.Context, passengerID string, limit int, unreadOnly bool, createdBefore time.Time) ([]inbound.PassengerMatchNotification, error) {
@@ -28,26 +30,31 @@ func (r *PassengerRepository) ListNotifications(ctx context.Context, passengerID
 	}
 
 	q := strings.Builder{}
+	// JOIN found_items to get current image_keys rather than the cached
+	// image_urls stored in the notifications row, which may be expired
+	// presigned URLs from old rows. The presigner in ListNotifications then
+	// converts those keys to fresh signed URLs at read-time.
 	q.WriteString(`
 		SELECT
-			id::text, passenger_id::text, lost_report_id::text, found_item_id::text,
-			similarity_score, item_name,
-			COALESCE(image_urls, '{}'::text[]), COALESCE(primary_image_url, ''),
-			created_at, read_at
-		FROM passenger_match_notifications
-		WHERE passenger_id = $1::uuid
+			n.id::text, n.passenger_id::text, n.lost_report_id::text, n.found_item_id::text,
+			n.similarity_score, n.item_name,
+			COALESCE(fi.image_keys, '{}'::text[]), COALESCE(fi.primary_image_key, ''),
+			n.created_at, n.read_at
+		FROM passenger_match_notifications n
+		LEFT JOIN found_items fi ON fi.id = n.found_item_id
+		WHERE n.passenger_id = $1::uuid
 	`)
 	args := []any{passengerID}
 	n := 2
 	if unreadOnly {
-		q.WriteString(` AND read_at IS NULL`)
+		q.WriteString(` AND n.read_at IS NULL`)
 	}
 	if !createdBefore.IsZero() {
-		q.WriteString(` AND created_at < $` + strconv.Itoa(n))
+		q.WriteString(` AND n.created_at < $` + strconv.Itoa(n))
 		args = append(args, createdBefore)
 		n++
 	}
-	q.WriteString(` ORDER BY created_at DESC LIMIT $` + strconv.Itoa(n))
+	q.WriteString(` ORDER BY n.created_at DESC LIMIT $` + strconv.Itoa(n))
 	args = append(args, limit)
 
 	rows, err := r.pool.Query(ctx, q.String(), args...)
@@ -56,25 +63,57 @@ func (r *PassengerRepository) ListNotifications(ctx context.Context, passengerID
 	}
 	defer rows.Close()
 
+	// Get a presigner once for all rows (nil if AWS env vars aren't set).
+	presigner, presignErr := s3media.GetPresigner(ctx)
+	if presignErr != nil {
+		log.Printf("notifications: presigner unavailable (%v) — images will not load", presignErr)
+	}
+
 	out := make([]inbound.PassengerMatchNotification, 0)
 	for rows.Next() {
 		var nt inbound.PassengerMatchNotification
-		var imageURLs pgtype.FlatArray[string]
+		var rawKeys pgtype.FlatArray[string]
+		var rawPrimary string
 		var readAt pgtype.Timestamptz
 		if err := rows.Scan(
 			&nt.ID, &nt.PassengerID, &nt.LostReportID, &nt.FoundItemID,
 			&nt.SimilarityScore, &nt.ItemName,
-			&imageURLs, &nt.PrimaryImageURL,
+			&rawKeys, &rawPrimary,
 			&nt.CreatedAt, &readAt,
 		); err != nil {
 			return nil, err
 		}
-		if imageURLs != nil {
-			nt.ImageURLs = []string(imageURLs)
-		}
 		if readAt.Valid {
 			nt.ReadAt = readAt.Time
 		}
+
+		// Convert stored S3 keys to fresh presigned URLs. If presigning fails
+		// (e.g. AWS not configured in dev) we silently skip that image so the
+		// rest of the notification still renders.
+		if presigner != nil {
+			keys := []string(rawKeys)
+			urls := make([]string, 0, len(keys))
+			for _, k := range keys {
+				if strings.TrimSpace(k) == "" {
+					continue
+				}
+				u, err := presigner.PresignGet(ctx, k)
+				if err == nil && strings.TrimSpace(u) != "" {
+					urls = append(urls, u)
+				}
+			}
+			nt.ImageURLs = urls
+
+			if strings.TrimSpace(rawPrimary) != "" {
+				if u, err := presigner.PresignGet(ctx, rawPrimary); err == nil {
+					nt.PrimaryImageURL = u
+				}
+			}
+			if nt.PrimaryImageURL == "" && len(urls) > 0 {
+				nt.PrimaryImageURL = urls[0]
+			}
+		}
+
 		out = append(out, nt)
 	}
 	if rows.Err() != nil {

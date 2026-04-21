@@ -2,11 +2,19 @@ package outbound
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"smartfind/services/passenger-service/internal/core/domain"
 	"smartfind/services/passenger-service/internal/core/ports/inbound"
 )
+
+// ErrLostReportHasActiveClaims is returned when a lost report cannot be deleted
+// because it still has claims that are pending or approved.
+var ErrLostReportHasActiveClaims = errors.New("lost report has active claims and cannot be deleted")
+
+// ErrLostReportNotFound is returned when the target report doesn't exist for the passenger.
+var ErrLostReportNotFound = errors.New("lost report not found")
 
 // PassengerRepository defines the outbound persistence port for passengers.
 type PassengerRepository interface {
@@ -16,6 +24,7 @@ type PassengerRepository interface {
 	Update(ctx context.Context, passenger domain.Passenger) error
 
 	CreateLostReport(ctx context.Context, report inbound.LostReport) (*inbound.LostReport, error)
+	UpdateLostReport(ctx context.Context, in inbound.UpdateLostReportInput) (*inbound.LostReport, error)
 	GetLostReportForPassenger(ctx context.Context, passengerID string, lostReportID string) (*inbound.LostReport, error)
 	UpsertLostReportEmbedding(ctx context.Context, lostReportID string, embedding []float32) error
 	GetLostReportEmbeddingForPassenger(ctx context.Context, passengerID string, lostReportID string) ([]float32, error)

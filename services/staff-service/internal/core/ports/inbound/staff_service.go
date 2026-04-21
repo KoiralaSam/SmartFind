@@ -77,6 +77,35 @@ type CreateFoundItemInput struct {
 	PrimaryImageKey string
 }
 
+// UpdateFoundItemInput carries the patch payload for UpdateFoundItem.
+// Only fields that differ from their zero value are applied; image_keys
+// replaces the full key list when non-nil (even if empty).
+type UpdateFoundItemInput struct {
+	StaffID         string
+	FoundItemID     string
+	ItemName        string
+	ItemDescription string
+	ItemType        string
+	Brand           string
+	Model           string
+	Color           string
+	Material        string
+	ItemCondition   string
+	Category        string
+	LocationFound   string
+	RouteOrStation  string
+	RouteID         string
+	DateFound       time.Time
+	// When non-nil, replaces the image key list entirely.
+	ImageKeys       *[]string
+	PrimaryImageKey *string
+}
+
+type DeleteFoundItemInput struct {
+	StaffID     string
+	FoundItemID string
+}
+
 type UpdateFoundItemStatusInput struct {
 	StaffID     string
 	FoundItemID string
@@ -163,6 +192,8 @@ type StaffUsecase interface {
 
 	// Found items
 	CreateFoundItem(ctx context.Context, in CreateFoundItemInput) (*FoundItem, error)
+	UpdateFoundItem(ctx context.Context, in UpdateFoundItemInput) (*FoundItem, error)
+	DeleteFoundItem(ctx context.Context, in DeleteFoundItemInput) error
 	UpdateFoundItemStatus(ctx context.Context, in UpdateFoundItemStatusInput) (*FoundItem, error)
 	ListFoundItems(ctx context.Context, in ListFoundItemsInput) ([]FoundItem, error)
 	SearchFoundItemMatchesByEmbedding(ctx context.Context, in SearchFoundItemMatchesByEmbeddingInput) ([]FoundItemMatch, error)

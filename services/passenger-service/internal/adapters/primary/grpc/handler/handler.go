@@ -8,6 +8,7 @@ import (
 
 	"smartfind/services/passenger-service/internal/adapters/primary/grpc/mapper"
 	"smartfind/services/passenger-service/internal/core/ports/inbound"
+	"smartfind/services/passenger-service/internal/core/ports/outbound"
 	"smartfind/shared/auth"
 	pb "smartfind/shared/proto/passenger"
 
@@ -102,6 +103,61 @@ func (h *Handler) CreateLostReport(ctx context.Context, req *pb.CreateLostReport
 	}
 
 	report, err := h.usecase.CreateLostReport(ctx, in)
+	if err != nil {
+		return nil, mapDomainError(err)
+	}
+	return mapper.LostReportToPB(report), nil
+}
+
+// UpdateLostReport patches the passenger's lost report. Each embedded-slot
+// string field on the request is forwarded only when non-empty; to
+// intentionally clear a slot, callers should send a single space (which
+// the repository trims to "") until a dedicated clear semantic is needed.
+// date_lost is forwarded only when a timestamp is actually set.
+func (h *Handler) UpdateLostReport(ctx context.Context, req *pb.UpdateLostReportRequest) (*pb.LostReport, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	claims, err := requirePassengerClaims(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := enforcePassengerIDMatch(req.GetPassengerId(), claims); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.GetLostReportId()) == "" {
+		return nil, status.Error(codes.InvalidArgument, "lost_report_id is required")
+	}
+
+	in := inbound.UpdateLostReportInput{
+		PassengerID:  claims.PassengerID,
+		LostReportID: req.GetLostReportId(),
+	}
+	strPtrIfSet := func(v string) *string {
+		if v == "" {
+			return nil
+		}
+		vv := v
+		return &vv
+	}
+	in.ItemName = strPtrIfSet(req.GetItemName())
+	in.ItemDescription = strPtrIfSet(req.GetItemDescription())
+	in.ItemType = strPtrIfSet(req.GetItemType())
+	in.Brand = strPtrIfSet(req.GetBrand())
+	in.Model = strPtrIfSet(req.GetModel())
+	in.Color = strPtrIfSet(req.GetColor())
+	in.Material = strPtrIfSet(req.GetMaterial())
+	in.ItemCondition = strPtrIfSet(req.GetItemCondition())
+	in.Category = strPtrIfSet(req.GetCategory())
+	in.LocationLost = strPtrIfSet(req.GetLocationLost())
+	in.RouteOrStation = strPtrIfSet(req.GetRouteOrStation())
+	in.RouteID = strPtrIfSet(req.GetRouteId())
+	if req.GetDateLost() != nil {
+		t := req.GetDateLost().AsTime()
+		in.DateLost = &t
+	}
+
+	report, err := h.usecase.UpdateLostReport(ctx, in)
 	if err != nil {
 		return nil, mapDomainError(err)
 	}
@@ -296,6 +352,12 @@ func mapDomainError(err error) error {
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return status.Error(codes.DeadlineExceeded, "deadline exceeded")
+	}
+	if errors.Is(err, outbound.ErrLostReportHasActiveClaims) {
+		return status.Error(codes.FailedPrecondition, err.Error())
+	}
+	if errors.Is(err, outbound.ErrLostReportNotFound) {
+		return status.Error(codes.NotFound, err.Error())
 	}
 
 	msg := strings.ToLower(err.Error())
