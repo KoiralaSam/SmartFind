@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { MapContainer, TileLayer, CircleMarker, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -77,7 +77,9 @@ async function geocode(name) {
     const data = await res.json();
     if (data?.length > 0)
       return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-  } catch {}
+  } catch {
+    // Best-effort geocoding; fallback handled by returning null.
+  }
   return null;
 }
 
@@ -211,14 +213,15 @@ function fmt(dateStr) {
 }
 
 // ─── Stat Card ──────────────────────────────────────────────────
-function StatCard({ icon: Icon, label, value, accent }) {
+function StatCard({ icon, label, value, accent }) {
+  const IconComponent = icon;
   return (
     <div className="rounded-2xl border border-border bg-card p-3 shadow-sm">
       <div className="flex items-start gap-2.5">
         <div
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${accent}`}
         >
-          <Icon className="h-4 w-4" />
+          {IconComponent ? <IconComponent className="h-4 w-4" /> : null}
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-xl font-semibold tracking-tight">{value}</p>
@@ -261,7 +264,7 @@ export default function AnalyticsPanel() {
       }
     }
     load();
-    const interval = setInterval(load, 60_000);
+    const interval = setInterval(load, 60000);
     return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
@@ -277,10 +280,12 @@ export default function AnalyticsPanel() {
           setTemporalByDay(json.by_day_of_week ?? null);
           setTemporalReports(json.reports ?? null);
         }
-      } catch {}
+      } catch {
+        // Non-blocking: keep previous temporal data if refresh fails.
+      }
     }
     loadTemporal();
-    const interval = setInterval(loadTemporal, 60_000);
+    const interval = setInterval(loadTemporal, 60000);
     return () => { cancelled = true; clearInterval(interval); };
   }, []);
 

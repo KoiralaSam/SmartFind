@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-agent
+  labels:
+    app: chat-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chat-agent
+  template:
+    metadata:
+      labels:
+        app: chat-agent
+    spec:
+      containers:
+        - name: chat-agent
+          image: ghcr.io/koiralasam/smartfind/chat-agent:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8090
+              name: http
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          env:
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: ENVIRONMENT
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openai-api-key
+                  key: OPENAI_API_KEY
+            - name: PASSENGER_SERVICE_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: PASSENGER_SERVICE_ADDRESS
+            - name: INTERNAL_SERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: internal-service-secret
+                  key: INTERNAL_SERVICE_SECRET
+            - name: DEEPGRAM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: deepgram-secrets
+                  key: DEEPGRAM_API_KEY
+            - name: OPENAI_CHAT_MODEL
+              value: "gpt-4o-mini"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chat-agent
+  labels:
+    app: chat-agent
+spec:
+  selector:
+    app: chat-agent
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http

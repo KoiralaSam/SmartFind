@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: predictive-analytics-agent
+  labels:
+    app: predictive-analytics-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: predictive-analytics-agent
+  template:
+    metadata:
+      labels:
+        app: predictive-analytics-agent
+    spec:
+      containers:
+        - name: predictive-analytics-agent
+          image: ghcr.io/koiralasam/smartfind/predictive-analytics-agent:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8092
+              name: http
+          env:
+            - name: ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: ENVIRONMENT
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: groq-api-key
+                  key: GROQ_API_KEY
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: DATABASE_URL_CLUSTER
+            - name: ANALYTICS_GOOGLE_SERVICE_ACCOUNT_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: analytics-agent
+                  key: ANALYTICS_GOOGLE_SERVICE_ACCOUNT_JSON
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: predictive-analytics-agent
+  labels:
+    app: predictive-analytics-agent
+spec:
+  selector:
+    app: predictive-analytics-agent
+  ports:
+    - name: http
+      port: 8092
+      targetPort: http

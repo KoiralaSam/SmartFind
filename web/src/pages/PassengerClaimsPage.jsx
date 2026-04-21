@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { passengerListClaims } from "../api/gateway";
 
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = 30000;
 
 function formatDateLabel(v) {
   if (v == null || v === "") return "";

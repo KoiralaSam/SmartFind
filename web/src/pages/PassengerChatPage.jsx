@@ -215,7 +215,7 @@ export default function PassengerChatPage() {
     }
 
     poll();
-    const t = setInterval(poll, 30_000);
+    const t = setInterval(poll, 30000);
     return () => {
       cancelled = true;
       clearInterval(t);
@@ -575,7 +575,7 @@ export default function PassengerChatPage() {
           },
         ]);
       };
-    } catch (e) {
+    } catch {
       setMessages((m) => [
         ...m,
         {

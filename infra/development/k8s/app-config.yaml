@@ -5,6 +5,9 @@ metadata:
 data:
   ENVIRONMENT: "development"
   GATEWAY_HTTP_ADDR: ":8081"
+  PUBLIC_API_BASE_URL: "http://localhost:8081"
+  PUBLIC_CHAT_AGENT_URL: "http://localhost:8090"
+  PUBLIC_DETAIL_EXTRACTER_URL: "http://localhost:8091"
   # Passenger-service gRPC server listen address (binds inside the container)
   PASSENGER_GRPC_ADDR: ":50051"
   # API Gateway -> passenger-service gRPC address (cluster DNS name + port)

@@ -4,7 +4,10 @@ import { legoAvatarFromSeed } from "../lib/avatarUrl";
 import { AuthContext } from "./auth-context";
 
 const STORAGE_KEY = "smartfind-auth";
-const GATEWAY_BASE_URL = import.meta.env.VITE_API_GATEWAY_URL || "";
+const GATEWAY_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_GATEWAY_URL ||
+  "";
 const GATEWAY_PATH_PREFIX = GATEWAY_BASE_URL ? "" : "/gateway";
 
 function persistUser(next) {
