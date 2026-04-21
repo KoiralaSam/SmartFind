@@ -11,7 +11,9 @@ ALTER TABLE passengers
 
 ALTER TABLE staff
   ADD COLUMN IF NOT EXISTS password_hash TEXT;
-  ALTER COLUMN id set default gen_random_uuid();
+
+ALTER TABLE staff
+  ALTER COLUMN id SET DEFAULT gen_random_uuid();
 
 ALTER TABLE found_items
   ADD COLUMN IF NOT EXISTS route_id UUID REFERENCES routes(id) ON DELETE SET NULL;
@@ -23,4 +25,3 @@ CREATE INDEX IF NOT EXISTS idx_routes_route_name ON routes (route_name);
 CREATE INDEX IF NOT EXISTS idx_routes_created_by_staff_id ON routes (created_by_staff_id);
 CREATE INDEX IF NOT EXISTS idx_found_items_route_id ON found_items (route_id);
 CREATE INDEX IF NOT EXISTS idx_lost_reports_route_id ON lost_reports (route_id);
-
