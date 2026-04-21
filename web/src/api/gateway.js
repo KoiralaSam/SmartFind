@@ -2,8 +2,13 @@
 // like `api-gateway:8081` not resolving in the browser.
 //
 // If you want to hit the gateway directly from the browser, set:
-//   VITE_API_GATEWAY_URL=http://localhost:8081
-const GATEWAY_BASE_URL = import.meta.env.VITE_API_GATEWAY_URL || "";
+//   VITE_API_BASE_URL=http://localhost:8081
+//
+// `VITE_API_GATEWAY_URL` remains supported as a fallback for older setups.
+const GATEWAY_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL ||
+  import.meta.env.VITE_API_GATEWAY_URL ||
+  "";
 const GATEWAY_PATH_PREFIX = GATEWAY_BASE_URL ? "" : "/gateway";
 const STORAGE_KEY = "smartfind-auth";
 

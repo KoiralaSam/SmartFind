@@ -5,3 +5,11 @@ metadata:
 data:
   ENVIRONMENT: "production"
   GATEWAY_HTTP_ADDR: ":8081"
+  PUBLIC_API_BASE_URL: "https://api.smartfind.example.com"
+  PUBLIC_CHAT_AGENT_URL: "https://chat.smartfind.example.com"
+  PUBLIC_DETAIL_EXTRACTER_URL: "https://extract.smartfind.example.com"
+  PASSENGER_GRPC_ADDR: ":50051"
+  PASSENGER_SERVICE_ADDRESS: "passenger-service:50051"
+  STAFF_SERVICE_ADDRESS: "staff-service:50052"
+  DETAIL_EXTRACTER_SERVICE_ADDRESS: "detail-extracter-agent:50053"
+  MATCH_MIN_SIMILARITY: "0.65"

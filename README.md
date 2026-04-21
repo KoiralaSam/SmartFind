@@ -57,6 +57,8 @@ Check resources:
 kubectl get pods
 ```
 
+Deployment workflow details, CI/CD expectations, and rollback commands live in `docs/deployment.md`.
+
 ## Makefile Commands
 
 The `Makefile` includes migration helpers that read `DATABASE_URL` from [infra/development/k8s/secrets.yaml](infra/development/k8s/secrets.yaml).

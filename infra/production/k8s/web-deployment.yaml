@@ -16,8 +16,8 @@ spec:
     spec:
       containers:
         - name: web
-          image: smartfind/web
-          imagePullPolicy: IfNotPresent
+          image: ghcr.io/koiralasam/smartfind/web:latest
+          imagePullPolicy: Always
           ports:
             - containerPort: 5173
               name: http
@@ -30,7 +30,7 @@ spec:
               memory: "512Mi"
           env:
             - name: NODE_ENV
-              value: "development"
+              value: "production"
             - name: VITE_API_BASE_URL
               valueFrom:
                 configMapKeyRef:
@@ -46,7 +46,6 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: PUBLIC_DETAIL_EXTRACTER_URL
-            # Google OAuth client ID for passenger sign-in (Vite injects at dev server start)
             - name: VITE_GOOGLE_CLIENT_ID
               valueFrom:
                 secretKeyRef:
@@ -68,3 +67,17 @@ spec:
             periodSeconds: 20
             timeoutSeconds: 10
             failureThreshold: 3
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 5173
+      targetPort: http
+  selector:
+    app: web
