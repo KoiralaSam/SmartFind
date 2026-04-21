@@ -17,7 +17,7 @@ spec:
       containers:
         - name: web
           image: ghcr.io/koiralasam/smartfind/web:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5173
               name: http
@@ -82,7 +82,7 @@ metadata:
 spec:
   type: LoadBalancer
   ports:
-    - port: 5173
+    - port: 80
       targetPort: http
   selector:
     app: web

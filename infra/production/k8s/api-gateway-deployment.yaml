@@ -15,7 +15,7 @@ spec:
       containers:
         - name: api-gateway
           image: ghcr.io/koiralasam/smartfind/api-gateway:latest
-          imagePullPolicy: Always
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8081
               name: http
@@ -82,7 +82,7 @@ metadata:
 spec:
   type: LoadBalancer
   ports:
-    - port: 8081
+    - port: 80
       targetPort: http
   selector:
     app: api-gateway
