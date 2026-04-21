@@ -13,8 +13,7 @@ import {
   X,
 } from "lucide-react";
 
-const ANALYTICS_BASE_URL =
-  import.meta.env.VITE_ANALYTICS_API_URL || "http://localhost:8092";
+const ANALYTICS_BASE_URL = import.meta.env.VITE_ANALYTICS_API_URL || "";
 
 // ─── Risk config ────────────────────────────────────────────────
 const RISK = {

@@ -14,6 +14,8 @@ export default defineConfig(({ mode }) => {
       // Add your current ngrok domain here (or set VITE_ALLOWED_HOSTS as a comma-separated list).
       allowedHosts: [
         "unpolemical-spinier-chana.ngrok-free.dev",
+        "smartfind.samarpankoirala.tech",
+        "api.smartfind.samarpankoirala.tech",
         ...(env.VITE_ALLOWED_HOSTS || "")
           .split(",")
           .map((s) => s.trim())
@@ -41,6 +43,10 @@ export default defineConfig(({ mode }) => {
         "/api/extract": {
           target: env.VITE_API_BASE_URL || "http://localhost:8081",
           rewrite: (path) => path.replace(/^\/api\/extract/, "/extract"),
+          changeOrigin: true,
+        },
+        "/analytics": {
+          target: env.ANALYTICS_URL || "http://localhost:8092",
           changeOrigin: true,
         },
         "/api": {

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Bot, CheckCircle2, ImageIcon, Loader2, Mic, MicOff, Send, Sparkles } from "lucide-react";
 import { AccountAvatar } from "../components/AccountAvatar";
 import { NotificationsPanel } from "../components/NotificationsPanel";
-import { passengerFileClaim } from "../api/gateway";
+import { passengerFileClaim, passengerMarkNotificationsRead } from "../api/gateway";
 import { useAuth } from "../context/useAuth";
 
 const CHAT_BASE_URL = "/api";
@@ -196,14 +196,11 @@ export default function PassengerChatPage() {
           setMessages((prev) => [...prev, ...newMessages]);
         }
 
-        const readRes = await fetch(`/passenger/notifications/read`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ notification_ids: markIds }),
-        }).catch(() => null);
+        const readRes = await passengerMarkNotificationsRead(markIds).catch(
+          () => null,
+        );
 
-        if (readRes?.ok) {
+        if (readRes?.status === "ok") {
           markIds.forEach((id) => {
             pendingNotificationIdsRef.current.delete(id);
             seenNotificationIdsRef.current.add(id);
