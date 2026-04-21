@@ -142,15 +142,40 @@ type StaffListFoundItemsResponse struct {
 	Items []FoundItemDTO `json:"items"`
 }
 
+// PassengerClaimFoundItemDTO mirrors FoundItemMatch JSON for the passenger UI (images + details).
+type PassengerClaimFoundItemDTO struct {
+	FoundItemID     string    `json:"found_item_id"`
+	ItemName        string    `json:"item_name"`
+	ItemDescription string    `json:"item_description"`
+	ItemType        string    `json:"item_type"`
+	Brand           string    `json:"brand"`
+	Model           string    `json:"model"`
+	Color           string    `json:"color"`
+	Material        string    `json:"material"`
+	ItemCondition   string    `json:"item_condition"`
+	Category        string    `json:"category"`
+	LocationFound   string    `json:"location_found"`
+	RouteOrStation  string    `json:"route_or_station"`
+	RouteID         string    `json:"route_id"`
+	DateFound       time.Time `json:"date_found"`
+	Status          string    `json:"status"`
+	SimilarityScore float64   `json:"similarity_score"`
+	ImageURLs       []string  `json:"image_urls"`
+	PrimaryImageURL string    `json:"primary_image_url"`
+}
+
 type ItemClaimDTO struct {
-	ID                  string    `json:"id"`
-	ItemID              string    `json:"item_id"`
-	ClaimantPassengerID string    `json:"claimant_passenger_id"`
-	LostReportID        string    `json:"lost_report_id"`
-	Message             string    `json:"message"`
-	Status              string    `json:"status"`
-	CreatedAt           time.Time `json:"created_at"`
-	UpdatedAt           time.Time `json:"updated_at"`
+	ID                  string                      `json:"id"`
+	ItemID              string                      `json:"item_id"`
+	ClaimantPassengerID string                      `json:"claimant_passenger_id"`
+	ClaimantName        string                      `json:"claimant_name"`
+	ClaimantEmail       string                      `json:"claimant_email"`
+	LostReportID        string                      `json:"lost_report_id"`
+	Message             string                      `json:"message"`
+	Status              string                      `json:"status"`
+	CreatedAt           time.Time                   `json:"created_at"`
+	UpdatedAt           time.Time                   `json:"updated_at"`
+	FoundItem           *PassengerClaimFoundItemDTO `json:"found_item,omitempty"`
 }
 
 type StaffListClaimsResponse struct {

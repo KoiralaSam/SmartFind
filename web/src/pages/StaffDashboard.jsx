@@ -21,6 +21,7 @@ import { useAuth } from "../context/useAuth";
 import {
   staffCreateFoundItem,
   staffListFoundItems,
+  staffListClaims,
   staffListTransitRoutes,
   staffUpdateFoundItem,
   staffUpdateFoundItemStatus,
@@ -113,7 +114,7 @@ const STAFF_SECTIONS = new Set([
   "dashboard",
   "upload",
   "in-progress",
-  "claimed",
+  "claims",
   "analytics",
   "routes",
 ]);
@@ -172,7 +173,7 @@ function StatCard({ icon: Icon, label, value, accent }) {
 }
 
 // ─── Item Card ───────────────────────────────────────────────
-function ItemCard({ item, onClaim, onEdit, onDelete }) {
+function ItemCard({ item, claimants = [], onClaim, onEdit, onDelete }) {
   return (
     <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-start gap-4">
@@ -211,6 +212,21 @@ function ItemCard({ item, onClaim, onEdit, onDelete }) {
               <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
                 {item.description}
               </p>
+            )}
+            {Array.isArray(claimants) && claimants.length > 0 && (
+              <div className="pt-1">
+                <p className="text-xs font-semibold text-foreground">Claimed by</p>
+                <div className="mt-1 space-y-0.5">
+                  {claimants.map((c, idx) => (
+                    <p
+                      key={`${c.name}-${idx}`}
+                      className="text-sm font-medium text-foreground/90"
+                    >
+                      {c.name || "Unknown passenger"}
+                    </p>
+                  ))}
+                </div>
+              </div>
             )}
             <p className="text-[11px] text-muted-foreground/70">
               Found {item.dateFound || "N/A"}
@@ -519,9 +535,11 @@ export default function StaffDashboard() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { section } = useParams();
+  const normalizedSection = section === "claimed" ? "claims" : section;
   const tab =
-    section && STAFF_SECTIONS.has(section) ? section : null;
+    normalizedSection && STAFF_SECTIONS.has(normalizedSection) ? normalizedSection : null;
   const [items, setItems] = useState([]);
+  const [claims, setClaims] = useState([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsError, setItemsError] = useState("");
 
@@ -621,6 +639,8 @@ export default function StaffDashboard() {
         .map(mapFoundItemDTO)
         .filter(Boolean);
       setItems(next);
+      const claimsPayload = await staffListClaims({ limit: 500, offset: 0 });
+      setClaims(Array.isArray(claimsPayload?.claims) ? claimsPayload.claims : []);
     } catch (err) {
       setItemsError(err?.message || "Failed to load found items.");
     } finally {
@@ -650,8 +670,35 @@ export default function StaffDashboard() {
     };
   }, [user?.id]);
 
-  const unclaimed = items.filter((i) => i.status === "unclaimed");
   const claimed = items.filter((i) => i.status === "claimed");
+  const claimedByUserItemIDs = new Set(
+    claims
+      .filter((c) => {
+        const st = String(c?.status || "").toLowerCase();
+        return st === "pending" || st === "approved";
+      })
+      .map((c) => String(c?.item_id || "").trim())
+      .filter(Boolean),
+  );
+  const claimedByUsers = items.filter((i) => claimedByUserItemIDs.has(i.id));
+  const inProgress = items.filter(
+    (i) => i.status === "unclaimed" && !claimedByUserItemIDs.has(i.id),
+  );
+  const claimantsByItemID = claims.reduce((acc, c) => {
+    const st = String(c?.status || "").toLowerCase();
+    if (st !== "pending" && st !== "approved") return acc;
+    const itemID = String(c?.item_id || "").trim();
+    if (!itemID) return acc;
+    const name = String(c?.claimant_name || "").trim();
+    const next = { name };
+    if (!acc[itemID]) {
+      acc[itemID] = [];
+    }
+    if (!acc[itemID].some((x) => x.name === next.name)) {
+      acc[itemID].push(next);
+    }
+    return acc;
+  }, {});
 
   const runExtractionOnPhoto = useCallback(
     async (photo) => {
@@ -1151,13 +1198,13 @@ export default function StaffDashboard() {
             to="/staff/in-progress"
             icon={Clock}
             label="In Progress"
-            count={unclaimed.length}
+            count={inProgress.length}
           />
           <StaffTabLink
-            to="/staff/claimed"
+            to="/staff/claims"
             icon={CheckCircle2}
-            label="Claimed"
-            count={claimed.length}
+            label="Claims"
+            count={claimedByUsers.length}
           />
           <StaffTabLink to="/staff/analytics" icon={BarChart3} label="Analytics" count={0} />
           <StaffTabLink to="/staff/routes" icon={MapPin} label="Routes" count={0} />
@@ -1204,13 +1251,13 @@ export default function StaffDashboard() {
               <StatCard
                 icon={Clock}
                 label="Unclaimed"
-                value={unclaimed.length}
+                value={inProgress.length}
                 accent="bg-amber-100 text-amber-700"
               />
               <StatCard
                 icon={CheckCircle2}
-                label="Claimed"
-                value={claimed.length}
+                label="Claims"
+                value={claimedByUsers.length}
                 accent="bg-green-100 text-green-700"
               />
             </div>
@@ -1648,7 +1695,7 @@ export default function StaffDashboard() {
               </p>
             </div>
 
-            {unclaimed.length === 0 ? (
+            {inProgress.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
                 <Clock className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" />
                 <p className="text-sm text-muted-foreground">
@@ -1657,11 +1704,10 @@ export default function StaffDashboard() {
               </div>
             ) : (
               <div className="space-y-3">
-                {unclaimed.map((item) => (
+                {inProgress.map((item) => (
                   <ItemCard
                     key={item.id}
                     item={item}
-                    onClaim={handleClaim}
                     onEdit={setEditItem}
                     onDelete={setDeleteItem}
                   />
@@ -1671,31 +1717,33 @@ export default function StaffDashboard() {
           </div>
         )}
 
-        {/* Claimed */}
-        {tab === "claimed" && (
+        {/* Claims */}
+        {tab === "claims" && (
           <div className="space-y-6">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">
-                Claimed Items
+                Claims
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Items that have been successfully returned to their owner.
+                Items that users have successfully claimed.
               </p>
             </div>
 
-            {claimed.length === 0 ? (
+            {claimedByUsers.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-border bg-card p-8 text-center">
                 <CheckCircle2 className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" />
                 <p className="text-sm text-muted-foreground">
-                  No claimed items yet.
+                  No claims yet.
                 </p>
               </div>
             ) : (
               <div className="space-y-3">
-                {claimed.map((item) => (
+                {claimedByUsers.map((item) => (
                   <ItemCard
                     key={item.id}
                     item={item}
+                    claimants={claimantsByItemID[item.id] || []}
+                    onClaim={item.status === "unclaimed" ? handleClaim : undefined}
                     onEdit={setEditItem}
                     onDelete={setDeleteItem}
                   />
