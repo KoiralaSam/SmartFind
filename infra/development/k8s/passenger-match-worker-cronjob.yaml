@@ -37,6 +37,11 @@ spec:
                     configMapKeyRef:
                       name: app-config
                       key: STAFF_SERVICE_ADDRESS
+                - name: MATCH_MIN_SIMILARITY
+                  valueFrom:
+                    configMapKeyRef:
+                      name: app-config
+                      key: MATCH_MIN_SIMILARITY
                 # S3: presign found-item photos for HTML match emails (shared/s3media).
                 - name: AWS_ACCESS_KEY_ID
                   valueFrom:
@@ -81,7 +86,6 @@ spec:
                       name: s3-credentials
                       key: AWS_S3_FORCE_PATH_STYLE
                       optional: true
-                # Long-lived GET URLs for inline email images (max 7 days for SigV4).
                 - name: MATCH_EMAIL_IMAGE_TTL_SECONDS
                   value: "604800"
                 - name: MAILTRAP_API_TOKEN
@@ -105,11 +109,6 @@ spec:
                     secretKeyRef:
                       name: mailtrap-secrets
                       key: PUBLIC_APP_BASE_URL
-                - name: MATCH_MIN_SIMILARITY
-                  valueFrom:
-                    configMapKeyRef:
-                      name: app-config
-                      key: MATCH_MIN_SIMILARITY
                 - name: MATCH_MAX_NOTIFS_PER_REPORT_PER_DAY
                   valueFrom:
                     secretKeyRef:

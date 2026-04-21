@@ -312,21 +312,11 @@ func minInt(a, b int) int {
 }
 
 // sendMatchEmail delivers the match digest via Mailtrap's Send API
-// (https://send.api.mailtrap.io/api/send). The transport was migrated off
-// SendGrid; the call site falls back gracefully when the Mailtrap token is
-// unset so the cron still inserts notifications into the database and simply
-// skips the email send.
+// (https://send.api.mailtrap.io/api/send). If Mailtrap or S3 presign fails,
+// the caller logs and continues; DB notifications are already inserted.
 //
-// Required env:
-//
-//	MAILTRAP_API_TOKEN      - API token with "Send Email" scope
-//	MAILTRAP_FROM_EMAIL     - verified sender address for your Mailtrap domain
-//
-// Optional env:
-//
-//	MAILTRAP_FROM_NAME      - human-readable sender name (defaults to "SmartFind")
-//	MAILTRAP_API_URL        - override the endpoint (e.g. sandbox inbox URL)
-//	PUBLIC_APP_BASE_URL     - base URL used to build deep links in the email
+// Required: MAILTRAP_API_TOKEN, MAILTRAP_FROM_EMAIL.
+// Optional: MAILTRAP_FROM_NAME, MAILTRAP_API_URL, PUBLIC_APP_BASE_URL.
 func sendMatchEmail(ctx context.Context, toEmail string, lostReportID string, lostItemName string, matches []insertedMatch, maxItems int) error {
 	apiToken := strings.TrimSpace(os.Getenv("MAILTRAP_API_TOKEN"))
 	fromEmail := strings.TrimSpace(os.Getenv("MAILTRAP_FROM_EMAIL"))
@@ -384,7 +374,10 @@ func sendMatchEmail(ctx context.Context, toEmail string, lostReportID string, lo
 		},
 	}
 
-	body, _ := json.Marshal(payload)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(body))
 	if err != nil {
 		return err
