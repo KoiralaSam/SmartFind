@@ -1,4 +1,4 @@
-CREATE TABLE passenger_match_notifications (
+CREATE TABLE IF NOT EXISTS passenger_match_notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   passenger_id UUID NOT NULL REFERENCES passengers(id) ON DELETE CASCADE,
   lost_report_id UUID NOT NULL REFERENCES lost_reports(id) ON DELETE CASCADE,
@@ -11,9 +11,8 @@ CREATE TABLE passenger_match_notifications (
   read_at TIMESTAMPTZ
 );
 
-CREATE UNIQUE INDEX uniq_passenger_match_notifications_lost_found
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_passenger_match_notifications_lost_found
   ON passenger_match_notifications (lost_report_id, found_item_id);
 
-CREATE INDEX idx_passenger_match_notifications_poll
+CREATE INDEX IF NOT EXISTS idx_passenger_match_notifications_poll
   ON passenger_match_notifications (passenger_id, read_at, created_at DESC);
-

@@ -2,6 +2,7 @@
 -- NOTE: This will fail if any existing staff rows have email IS NULL.
 
 ALTER TABLE staff
-  ALTER COLUMN email SET NOT NULL,
-  DROP COLUMN employee_id;
+  ALTER COLUMN email SET NOT NULL;
 
+ALTER TABLE staff
+  DROP COLUMN IF EXISTS employee_id;
