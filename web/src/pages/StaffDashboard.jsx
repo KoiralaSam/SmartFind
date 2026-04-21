@@ -120,7 +120,8 @@ const STAFF_SECTIONS = new Set([
 ]);
 
 // ─── Tab link (URL-backed) ───────────────────────────────────
-function StaffTabLink({ to, icon: Icon, label, count }) {
+function StaffTabLink({ to, icon, label, count }) {
+  const IconComponent = icon;
   return (
     <NavLink
       to={to}
@@ -134,7 +135,7 @@ function StaffTabLink({ to, icon: Icon, label, count }) {
     >
       {({ isActive }) => (
         <>
-          <Icon className="h-4 w-4" />
+          {IconComponent ? <IconComponent className="h-4 w-4" /> : null}
           <span className="hidden sm:inline">{label}</span>
           {count > 0 && (
             <span
@@ -154,14 +155,15 @@ function StaffTabLink({ to, icon: Icon, label, count }) {
 }
 
 // ─── Stat Card ───────────────────────────────────────────────
-function StatCard({ icon: Icon, label, value, accent }) {
+function StatCard({ icon, label, value, accent }) {
+  const IconComponent = icon;
   return (
     <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-center gap-3">
         <div
           className={`flex h-10 w-10 items-center justify-center rounded-xl ${accent}`}
         >
-          <Icon className="h-5 w-5" />
+          {IconComponent ? <IconComponent className="h-5 w-5" /> : null}
         </div>
         <div>
           <p className="text-2xl font-semibold tracking-tight">{value}</p>
@@ -623,7 +625,7 @@ export default function StaffDashboard() {
         ),
       );
     }
-  }, [mediaInitUploads]);
+  }, []);
 
   const refreshItems = useCallback(async () => {
     if (!user?.id) return;
@@ -670,7 +672,6 @@ export default function StaffDashboard() {
     };
   }, [user?.id]);
 
-  const claimed = items.filter((i) => i.status === "claimed");
   const claimedByUserItemIDs = new Set(
     claims
       .filter((c) => {
@@ -786,11 +787,11 @@ export default function StaffDashboard() {
         return [...prev, ...toAdd];
       });
       if (!toAdd.length) return;
-      for (const entry of toAdd) {
-        // Run extraction + S3 upload immediately for every added photo.
-        // eslint-disable-next-line no-await-in-loop
-        await Promise.all([runExtractionOnPhoto(entry), uploadPhotoToS3(entry)]);
-      }
+      await Promise.all(
+        toAdd.map((entry) =>
+          Promise.all([runExtractionOnPhoto(entry), uploadPhotoToS3(entry)]),
+        ),
+      );
     },
     [runExtractionOnPhoto, uploadPhotoToS3],
   );
@@ -870,19 +871,17 @@ export default function StaffDashboard() {
           return;
         }
         streamRef.current = stream;
-        const video = videoRef.current;
-        if (video) {
-          video.srcObject = stream;
+        const currentVideo = videoRef.current;
+        if (currentVideo) {
+          currentVideo.srcObject = stream;
           try {
-            await video.play();
+            await currentVideo.play();
           } catch (err) {
             // Keep the stream alive even if playback is blocked by autoplay policy.
-            // eslint-disable-next-line no-console
             console.warn("video.play() failed", err);
           }
         }
       } catch (err) {
-        // eslint-disable-next-line no-console
         console.error("getUserMedia failed", err);
         if (!cancelled) {
           const name = err?.name || "";
@@ -909,8 +908,8 @@ export default function StaffDashboard() {
       cancelled = true;
       if (stream) stream.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
-      const video = videoRef.current;
-      if (video) video.srcObject = null;
+      const currentVideo = videoRef.current;
+      if (currentVideo) currentVideo.srcObject = null;
     };
   }, [cameraOpen]);
 

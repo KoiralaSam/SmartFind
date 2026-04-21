@@ -3,7 +3,8 @@ import { ClipboardList, LogOut, MessageSquareText, ShieldCheck } from "lucide-re
 import { AccountAvatar } from "../components/AccountAvatar";
 import { useAuth } from "../context/useAuth";
 
-function NavItem({ to, icon: Icon, label, compact = false }) {
+function NavItem({ to, icon, label, compact = false }) {
+  const IconComponent = icon;
   return (
     <NavLink
       to={to}
@@ -19,7 +20,7 @@ function NavItem({ to, icon: Icon, label, compact = false }) {
         }`
       }
     >
-      <Icon className="h-4 w-4 shrink-0" aria-hidden />
+      {IconComponent ? <IconComponent className="h-4 w-4 shrink-0" aria-hidden /> : null}
       <span>{label}</span>
     </NavLink>
   );

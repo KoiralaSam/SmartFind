@@ -7,7 +7,7 @@ import {
   passengerMarkNotificationsRead,
 } from "../api/gateway";
 
-const POLL_INTERVAL_MS = 30_000;
+const POLL_INTERVAL_MS = 30000;
 const UNREAD_BADGE_CAP = 9;
 
 function formatRelativeTime(iso) {
