@@ -34,6 +34,11 @@ spec:
                 secretKeyRef:
                   name: detail-extracter-agent
                   key: GOOGLE_SERVICE_ACCOUNT_JSON
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: openai-api-key
+                  key: OPENAI_API_KEY
             - name: INTERNAL_SERVICE_SECRET
               valueFrom:
                 secretKeyRef:

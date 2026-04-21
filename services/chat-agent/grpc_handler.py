@@ -113,6 +113,28 @@ def _normalize_route_text(text: str) -> str:
     return " ".join(cleaned.split())
 
 
+def _split_route_name(route_name: str) -> tuple[str, str]:
+    raw = (route_name or "").strip()
+    if not raw:
+        return "", ""
+
+    parts = re.split(r"\s*(?:->|→|–|—|\bto\b|-)\s*", raw, maxsplit=1, flags=re.IGNORECASE)
+    if len(parts) == 2:
+        return _normalize_route_text(parts[0]), _normalize_route_text(parts[1])
+
+    return _normalize_route_text(raw), ""
+
+
+def _text_similarity(left: str, right: str) -> float:
+    if not left or not right:
+        return 0.0
+    if left == right:
+        return 1.0
+    if left in right or right in left:
+        return 0.92
+    return SequenceMatcher(None, left, right).ratio()
+
+
 def _score_route_match(route_name: str, route_from: str, route_to: str) -> float:
     route_norm = _normalize_route_text(route_name)
     from_norm = _normalize_route_text(route_from)
@@ -120,8 +142,39 @@ def _score_route_match(route_name: str, route_from: str, route_to: str) -> float
     if not route_norm or (not from_norm and not to_norm):
         return 0.0
 
+    route_start, route_end = _split_route_name(route_name)
     query_norm = " ".join(part for part in (from_norm, to_norm) if part)
     score = 0.0
+
+    # Prefer matching the actual route endpoints when the route_name contains them.
+    if route_start:
+        start_similarity = _text_similarity(from_norm, route_start) if from_norm else 0.0
+        score += 0.70 * start_similarity
+        if from_norm and from_norm == route_start:
+            score += 0.45
+    if route_end:
+        end_similarity = _text_similarity(to_norm, route_end) if to_norm else 0.0
+        score += 0.70 * end_similarity
+        if to_norm and to_norm == route_end:
+            score += 0.45
+
+    if route_start and route_end and from_norm and to_norm:
+        ordered_exact = from_norm == route_start and to_norm == route_end
+        reversed_exact = from_norm == route_end and to_norm == route_start
+        if ordered_exact:
+            score += 1.20
+        elif reversed_exact:
+            score += 0.20
+        else:
+            ordered_similarity = (
+                _text_similarity(from_norm, route_start) + _text_similarity(to_norm, route_end)
+            ) / 2.0
+            reversed_similarity = (
+                _text_similarity(from_norm, route_end) + _text_similarity(to_norm, route_start)
+            ) / 2.0
+            score += 0.45 * ordered_similarity
+            score += 0.10 * reversed_similarity
+
     if query_norm:
         score += 0.40 * SequenceMatcher(None, query_norm, route_norm).ratio()
         score += 0.15 * SequenceMatcher(
@@ -396,6 +449,7 @@ class PassengerGrpcHandler:
 
         best_route: Optional[Dict[str, Any]] = None
         best_score = 0.0
+        second_best_score = 0.0
         for route in routes:
             score = _score_route_match(
                 str(route.get("route_name") or ""),
@@ -403,11 +457,19 @@ class PassengerGrpcHandler:
                 route_to,
             )
             if score > best_score:
+                second_best_score = best_score
                 best_score = score
                 best_route = route
+            elif score > second_best_score:
+                second_best_score = score
 
-        threshold = 0.75 if route_from and route_to else 0.55
-        if not best_route or best_score < threshold:
+        threshold = 1.15 if route_from and route_to else 0.70
+        ambiguous_gap = 0.12 if route_from and route_to else 0.08
+        if (
+            not best_route
+            or best_score < threshold
+            or (second_best_score > 0 and (best_score - second_best_score) < ambiguous_gap)
+        ):
             return intake
 
         resolved = dict(intake)

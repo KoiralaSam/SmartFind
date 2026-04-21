@@ -72,6 +72,8 @@ BEHAVIOR RULES
 9. For time: if the user says "noon" use 12:00, "midnight" use 00:00. If they say vague words like "morning", "afternoon", "evening", or "around X", ask for a more specific time (e.g., "Could you give me an approximate time, like 2:00 PM?").
 9.1. NEVER ask again for a field that the passenger already provided earlier in the conversation.
      Example: if they said "white AirPods", do not ask "what item" or "what color" again.
+9.2. If the passenger later mentions a different item name, do not silently overwrite the current report.
+     Ask whether they are correcting the same report or starting a different item report.
 10. If the passenger says they have ALREADY filed a report, or asks for updates / whether it was found:
     - Do NOT start a new intake.
     - Do NOT ask for a lost_report_id (passengers often don’t have it).
@@ -205,6 +207,8 @@ _SESSION_MAX_MESSAGES = 60
 _session_lock = asyncio.Lock()
 _sessions: dict[str, dict] = {}
 _CENTRAL_TZ = ZoneInfo("America/Chicago")
+_ITEM_CONTEXT_SAME = "same"
+_ITEM_CONTEXT_DIFFERENT = "different"
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -367,6 +371,168 @@ def _last_assistant_has_check_choice_prompt(conversation: list[dict]) -> bool:
         if (msg.get("role") or "") == "assistant":
             return _CHECK_CHOICE_MARKER in str(msg.get("content") or "")
     return False
+
+
+def _normalize_item_key(text: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", " ", (text or "").strip().lower())
+    return " ".join(cleaned.split())
+
+
+def _extract_item_name_from_messages(messages: List[dict]) -> str:
+    try:
+        state = _extract_slots_from_conversation(messages)
+    except Exception:
+        return ""
+    return str(state.get("item_name") or "").strip()
+
+
+def _extract_item_name_from_text(text: str) -> str:
+    return _extract_item_name_from_messages([{"role": "user", "content": text}])
+
+
+def _new_context_id(session: dict) -> str:
+    seq = int(session.get("next_context_seq") or 1)
+    session["next_context_seq"] = seq + 1
+    return f"ctx-{seq}"
+
+
+def _refresh_context_metadata(context: dict, *, now: datetime | None = None) -> None:
+    item_name = _extract_item_name_from_messages(context.get("messages") or [])
+    context["item_name"] = item_name
+    context["item_key"] = _normalize_item_key(item_name)
+    context["updated_at"] = now or _utc_now()
+
+
+def _make_context(*, now: datetime, messages: List[dict] | None = None) -> dict:
+    ctx = {
+        "messages": list(messages or [])[-_SESSION_MAX_MESSAGES:],
+        "item_name": "",
+        "item_key": "",
+        "updated_at": now,
+    }
+    _refresh_context_metadata(ctx, now=now)
+    return ctx
+
+
+def _make_session(now: datetime, messages: List[dict] | None = None) -> dict:
+    session = {
+        "contexts": {},
+        "active_context_id": None,
+        "pending_item_switch": None,
+        "next_context_seq": 1,
+        "updated_at": now,
+    }
+    ctx_id = _new_context_id(session)
+    session["contexts"][ctx_id] = _make_context(now=now, messages=messages)
+    session["active_context_id"] = ctx_id
+    return session
+
+
+def _ensure_session_shape(raw_session: dict | None, *, now: datetime) -> dict:
+    if raw_session is None or (now - raw_session["updated_at"]).total_seconds() > _SESSION_TTL_SECONDS:
+        return _make_session(now)
+
+    if "contexts" in raw_session:
+        raw_session["updated_at"] = now
+        if raw_session.get("active_context_id") not in raw_session.get("contexts", {}):
+            contexts = raw_session.get("contexts") or {}
+            if contexts:
+                raw_session["active_context_id"] = next(iter(contexts))
+            else:
+                ctx_id = _new_context_id(raw_session)
+                raw_session["contexts"][ctx_id] = _make_context(now=now)
+                raw_session["active_context_id"] = ctx_id
+        return raw_session
+
+    messages = list(raw_session.get("messages") or [])
+    return _make_session(now, messages=messages)
+
+
+def _get_active_context(session: dict, *, now: datetime) -> tuple[str, dict]:
+    ctx_id = session.get("active_context_id")
+    contexts = session.setdefault("contexts", {})
+    if ctx_id and ctx_id in contexts:
+        return ctx_id, contexts[ctx_id]
+    if contexts:
+        first_id = next(iter(contexts))
+        session["active_context_id"] = first_id
+        return first_id, contexts[first_id]
+    new_id = _new_context_id(session)
+    contexts[new_id] = _make_context(now=now)
+    session["active_context_id"] = new_id
+    return new_id, contexts[new_id]
+
+
+def _find_context_id_by_item_key(session: dict, item_key: str) -> str:
+    if not item_key:
+        return ""
+    for ctx_id, ctx in (session.get("contexts") or {}).items():
+        if str(ctx.get("item_key") or "") == item_key:
+            return ctx_id
+    return ""
+
+
+def _append_user_message(context: dict, message: dict, *, now: datetime) -> None:
+    if (
+        not context["messages"]
+        or context["messages"][-1].get("role") != "user"
+        or context["messages"][-1].get("content") != message.get("content")
+    ):
+        context["messages"].append(message)
+    context["messages"] = context["messages"][-_SESSION_MAX_MESSAGES:]
+    _refresh_context_metadata(context, now=now)
+
+
+def _append_assistant_message(context: dict, reply: str, *, now: datetime) -> None:
+    context["messages"].append({"role": "assistant", "content": reply})
+    context["messages"] = context["messages"][-_SESSION_MAX_MESSAGES:]
+    context["updated_at"] = now
+
+
+def _resolve_item_switch_decision(user_text: str) -> str:
+    t = (user_text or "").strip().lower()
+    if not t:
+        return ""
+    same_phrases = (
+        "same report",
+        "same item",
+        "same one",
+        "correcting it",
+        "correction",
+        "update it",
+        "update the report",
+        "edit it",
+        "still the same",
+    )
+    different_phrases = (
+        "different item",
+        "different one",
+        "new item",
+        "another item",
+        "separate item",
+        "different report",
+        "new report",
+    )
+    if any(p in t for p in different_phrases):
+        return _ITEM_CONTEXT_DIFFERENT
+    if any(p in t for p in same_phrases):
+        return _ITEM_CONTEXT_SAME
+    if re.search(r"\b(same|correct|correction|update|edit)\b", t):
+        return _ITEM_CONTEXT_SAME
+    if re.search(r"\b(different|another|separate|new)\b", t):
+        return _ITEM_CONTEXT_DIFFERENT
+    return ""
+
+
+def _item_switch_prompt(current_item: str, new_item: str) -> str:
+    current_label = current_item or "your current item"
+    new_label = new_item or "this item"
+    return (
+        f"I already have a report in progress for {current_label}. "
+        f"You just mentioned {new_label}. "
+        "Is this the same report and you're correcting the item, or is this a different item? "
+        'Reply with "same report" or "different item".'
+    )
 
 
 def _force_check_ambiguity(reply_text: str) -> str:
@@ -807,45 +973,105 @@ def is_done(reply: str) -> bool:
     t = reply.strip()
     return t.startswith("{") and t.endswith("}")
 
-async def _session_conversation_for_request(passenger_id: str, incoming: List[dict]) -> List[dict]:
+async def _session_conversation_for_request(
+    passenger_id: str, incoming: List[dict]
+) -> tuple[List[dict], str | None]:
     now = _utc_now()
     async with _session_lock:
-        s = _sessions.get(passenger_id)
-        if s is None or (now - s["updated_at"]).total_seconds() > _SESSION_TTL_SECONDS:
-            s = {"messages": [], "updated_at": now}
-            _sessions[passenger_id] = s
+        session = _ensure_session_shape(_sessions.get(passenger_id), now=now)
+        _sessions[passenger_id] = session
 
-        # If the client sent a substantial history, treat it as canonical.
+        active_id, active_ctx = _get_active_context(session, now=now)
+
+        # If the client sent a substantial history, treat it as canonical for the active item context.
         if len(incoming) >= 6:
-            s["messages"] = incoming[-_SESSION_MAX_MESSAGES:]
-            s["updated_at"] = now
-            return list(s["messages"])
+            active_ctx["messages"] = incoming[-_SESSION_MAX_MESSAGES:]
+            _refresh_context_metadata(active_ctx, now=now)
+            session["updated_at"] = now
+            return list(active_ctx["messages"]), None
 
-        # Otherwise append only the newest user message.
         last_user = None
         for m in reversed(incoming):
             if (m.get("role") or "").strip() == "user":
                 last_user = {"role": "user", "content": str(m.get("content") or "")}
                 break
         if last_user is None:
-            return list(s["messages"])
+            session["updated_at"] = now
+            return list(active_ctx["messages"]), None
 
-        if not s["messages"] or s["messages"][-1].get("role") != "user" or s["messages"][-1].get("content") != last_user["content"]:
-            s["messages"].append(last_user)
-        s["messages"] = s["messages"][-_SESSION_MAX_MESSAGES:]
-        s["updated_at"] = now
-        return list(s["messages"])
+        pending = session.get("pending_item_switch")
+        if pending:
+            decision = _resolve_item_switch_decision(last_user["content"])
+            if decision == _ITEM_CONTEXT_SAME:
+                source_id = pending.get("source_context_id") or active_id
+                source_ctx = session["contexts"].get(source_id, active_ctx)
+                _append_user_message(source_ctx, pending["message"], now=now)
+                session["active_context_id"] = source_id
+                session["pending_item_switch"] = None
+                session["updated_at"] = now
+                return list(source_ctx["messages"]), None
+
+            if decision == _ITEM_CONTEXT_DIFFERENT:
+                proposed_key = str(pending.get("proposed_item_key") or "")
+                target_id = _find_context_id_by_item_key(session, proposed_key)
+                if target_id:
+                    target_ctx = session["contexts"][target_id]
+                else:
+                    target_id = _new_context_id(session)
+                    target_ctx = _make_context(now=now)
+                    session["contexts"][target_id] = target_ctx
+                _append_user_message(target_ctx, pending["message"], now=now)
+                session["active_context_id"] = target_id
+                session["pending_item_switch"] = None
+                session["updated_at"] = now
+                return list(target_ctx["messages"]), None
+
+            session["updated_at"] = now
+            return list(active_ctx["messages"]), _item_switch_prompt(
+                str(pending.get("current_item_name") or ""),
+                str(pending.get("proposed_item_name") or ""),
+            )
+
+        proposed_item_name = _extract_item_name_from_text(last_user["content"])
+        proposed_item_key = _normalize_item_key(proposed_item_name)
+        current_item_name = str(active_ctx.get("item_name") or "")
+        current_item_key = str(active_ctx.get("item_key") or "")
+
+        if proposed_item_key:
+            if current_item_key and proposed_item_key != current_item_key:
+                session["pending_item_switch"] = {
+                    "source_context_id": active_id,
+                    "message": last_user,
+                    "current_item_name": current_item_name,
+                    "proposed_item_name": proposed_item_name,
+                    "proposed_item_key": proposed_item_key,
+                }
+                session["updated_at"] = now
+                return list(active_ctx["messages"]), _item_switch_prompt(
+                    current_item_name,
+                    proposed_item_name,
+                )
+
+            existing_id = _find_context_id_by_item_key(session, proposed_item_key)
+            if existing_id and existing_id != active_id:
+                target_ctx = session["contexts"][existing_id]
+                _append_user_message(target_ctx, last_user, now=now)
+                session["active_context_id"] = existing_id
+                session["updated_at"] = now
+                return list(target_ctx["messages"]), None
+
+        _append_user_message(active_ctx, last_user, now=now)
+        session["updated_at"] = now
+        return list(active_ctx["messages"]), None
 
 async def _session_append_assistant(passenger_id: str, reply: str) -> None:
     now = _utc_now()
     async with _session_lock:
-        s = _sessions.get(passenger_id)
-        if s is None:
-            _sessions[passenger_id] = {"messages": [{"role": "assistant", "content": reply}], "updated_at": now}
-            return
-        s["messages"].append({"role": "assistant", "content": reply})
-        s["messages"] = s["messages"][-_SESSION_MAX_MESSAGES:]
-        s["updated_at"] = now
+        session = _ensure_session_shape(_sessions.get(passenger_id), now=now)
+        _sessions[passenger_id] = session
+        _, active_ctx = _get_active_context(session, now=now)
+        _append_assistant_message(active_ctx, reply, now=now)
+        session["updated_at"] = now
 
 
 @app.get("/health")
@@ -861,7 +1087,12 @@ async def chat(req: ChatRequest):
         incoming = [{"role": m.role, "content": m.content} for m in req.messages]
         conversation = incoming
         if req.passenger_id:
-            conversation = await _session_conversation_for_request(req.passenger_id, incoming)
+            conversation, immediate_reply = await _session_conversation_for_request(
+                req.passenger_id, incoming
+            )
+            if immediate_reply:
+                await _session_append_assistant(req.passenger_id, immediate_reply)
+                return ChatResponse(reply=immediate_reply, done=False)
         # Deterministic confirmation handoff: when all intake slots are present
         # and the user confirms/asks to submit, bypass potential LLM drift and
         # emit the final intake JSON directly.

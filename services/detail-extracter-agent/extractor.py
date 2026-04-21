@@ -3,6 +3,7 @@ import io
 import json
 import logging
 import os
+from typing import Any
 
 import requests
 from dotenv import find_dotenv, load_dotenv
@@ -17,6 +18,8 @@ logger = logging.getLogger("detail-extracter-agent")
 
 GOOGLE_SERVICE_ACCOUNT_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON")
 VISION_API_URL = "https://vision.googleapis.com/v1/images:annotate"
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+OPENAI_EXTRACT_MODEL = (os.environ.get("OPENAI_EXTRACT_MODEL") or "gpt-4o-mini").strip()
 
 # Cached credentials — reused across requests, refreshed only when expired
 _credentials = None
@@ -280,6 +283,17 @@ MATERIAL_KEYWORDS = {
     "cotton": "cotton",
 }
 
+EXTRACTION_FIELDS = (
+    "item_name",
+    "category",
+    "color",
+    "brand",
+    "model",
+    "material",
+    "item_condition",
+    "item_description",
+)
+
 
 def extract_details(vision_response: dict) -> dict:
     """Derive structured item details from a Cloud Vision API response."""
@@ -300,7 +314,7 @@ def extract_details(vision_response: dict) -> dict:
 
     # Brand from logo detection
     logo_annotations = vision_response.get("logoAnnotations", [])
-    brand = logo_annotations[0]["description"] if logo_annotations else "unknown"
+    brand = logo_annotations[0]["description"] if logo_annotations else ""
 
     # OCR text — only include if it looks like meaningful text, not fragmented noise
     text_annotations = vision_response.get("textAnnotations", [])
@@ -318,33 +332,35 @@ def extract_details(vision_response: dict) -> dict:
 
     # Dominant color
     color = extract_dominant_color(vision_response)
+    if color == "unknown":
+        color = ""
 
     # Category and type
     category, item_type = categorize_from_labels(all_labels)
 
     # item_name: "Brand TopLabel" or just "TopLabel"
     top_label = all_labels[0] if all_labels else "Item"
-    item_name = f"{brand} {top_label}" if brand != "unknown" else top_label
+    item_name = f"{brand} {top_label}" if brand else top_label
 
     # Material inferred from labels
-    material = "unknown"
+    material = ""
     for label in all_labels:
         for kw, mat in MATERIAL_KEYWORDS.items():
             if kw in label.lower():
                 material = mat
                 break
-        if material != "unknown":
+        if material:
             break
 
     # Build item_description with all non-explicit fields (type, brand, color, material,
     # visual features, OCR text) so staff only need to fill in name, location, route, date.
     desc_parts = []
 
-    opening = " ".join(t for t in [color, material, item_type] if t and t != "unknown")
+    opening = " ".join(t for t in [color, material, item_type] if t)
     if opening:
         desc_parts.append(opening.capitalize() + ".")
 
-    if brand != "unknown":
+    if brand:
         desc_parts.append(f"Brand: {brand}.")
 
     skip = {top_label.lower(), item_type.lower()}
@@ -358,16 +374,116 @@ def extract_details(vision_response: dict) -> dict:
     item_description = " ".join(desc_parts) if desc_parts else f"{item_type.capitalize()} item."
 
     return {
-        "item_name": item_name,
-        "item_type": item_type,
-        "category": category,
+        "item_name": item_name if item_name != "Item" else "",
+        "item_type": item_type if item_type != "other" else "",
+        "category": category if category != "Other" else "",
         "brand": brand,
-        "model": "unknown",
+        "model": "",
         "color": color,
         "material": material,
-        "item_condition": "unknown",
+        "item_condition": "",
         "item_description": item_description,
     }
+
+
+def _normalize_extraction_result(data: dict[str, Any]) -> dict[str, str]:
+    normalized: dict[str, str] = {}
+    for field in EXTRACTION_FIELDS:
+        value = data.get(field, "")
+        text = str(value or "").strip()
+        if text.lower() == "unknown":
+            text = ""
+        normalized[field] = text
+    return normalized
+
+
+def _llm_extract_details(vision_response: dict, heuristic: dict[str, str]) -> dict[str, str]:
+    if not OPENAI_API_KEY:
+        return heuristic
+
+    labels = [
+        a["description"]
+        for a in vision_response.get("labelAnnotations", [])
+        if a.get("description")
+    ]
+    logos = [
+        a["description"]
+        for a in vision_response.get("logoAnnotations", [])
+        if a.get("description")
+    ]
+    objects = [
+        a["name"]
+        for a in vision_response.get("localizedObjectAnnotations", [])
+        if a.get("name")
+    ]
+    text_annotations = vision_response.get("textAnnotations", [])
+    raw_text = text_annotations[0]["description"].strip() if text_annotations else ""
+
+    system_prompt = """You normalize lost-and-found image detection into staff form fields.
+
+Return ONLY valid JSON with exactly these string keys:
+- item_name
+- category
+- color
+- brand
+- model
+- material
+- item_condition
+- item_description
+
+Rules:
+- Resolve findings into those fields only.
+- Any field you cannot reliably determine must be an empty string.
+- Do not use the words "unknown", "n/a", or null.
+- item_name should be a short human-friendly name like "Apple MacBook Pro" or "Black backpack".
+- category should match one of:
+  Bags & Luggage
+  Electronics
+  Clothing & Accessories
+  Documents & Cards
+  Keys
+  Bottles & Containers
+  Books & Stationery
+  Toys & Games
+  Other
+- item_description should be concise but useful for staff.
+- Do not invent a brand, model, material, or condition unless there is evidence in the vision findings.
+"""
+
+    user_prompt = {
+        "heuristic_guess": heuristic,
+        "vision_findings": {
+            "labels": labels[:12],
+            "logos": logos[:5],
+            "objects": objects[:10],
+            "ocr_text": raw_text[:300],
+            "dominant_colors": vision_response.get("imagePropertiesAnnotation", {})
+            .get("dominantColors", {})
+            .get("colors", [])[:5],
+        },
+    }
+
+    response = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": OPENAI_EXTRACT_MODEL,
+            "temperature": 0,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": json.dumps(user_prompt)},
+            ],
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+    content = response.json()["choices"][0]["message"]["content"]
+    parsed = json.loads(content)
+    return _normalize_extraction_result(parsed)
 
 
 def run_extraction(image_base64: str) -> dict:
@@ -379,6 +495,10 @@ def run_extraction(image_base64: str) -> dict:
     vision_response = call_vision_api(image_base64)
     logger.info(f"Vision API response keys: {list(vision_response.keys())}")
 
-    return extract_details(vision_response)
-
+    heuristic = _normalize_extraction_result(extract_details(vision_response))
+    try:
+        return _llm_extract_details(vision_response, heuristic)
+    except Exception as e:
+        logger.warning(f"LLM normalization failed, using heuristic extraction: {e}")
+        return heuristic
 
