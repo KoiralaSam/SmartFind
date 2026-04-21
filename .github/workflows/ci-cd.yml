@@ -125,6 +125,7 @@ jobs:
     env:
       KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
       K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE }}
+      DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -133,6 +134,11 @@ jobs:
         uses: azure/setup-kubectl@v4
         with:
           version: latest
+
+      - name: Set up doctl (DigitalOcean auth plugin)
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ env.DIGITALOCEAN_ACCESS_TOKEN }}
 
       - name: Normalize registry owner
         id: owner
