@@ -62,4 +62,3 @@ func (r *PassengerRepository) ListMyClaims(ctx context.Context, passengerID stri
 	}
 	return out, nil
 }
-

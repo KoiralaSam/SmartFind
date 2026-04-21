@@ -9,6 +9,7 @@ import "google/protobuf/timestamp.proto";
 
 service PassengerService {
   rpc Login(LoginRequest) returns (LoginResponse);
+  rpc GetPassenger(GetPassengerRequest) returns (Passenger);
   rpc CreateLostReport(CreateLostReportRequest) returns (LostReport);
   rpc UpdateLostReport(UpdateLostReportRequest) returns (LostReport);
   rpc ListLostReports(ListLostReportsRequest) returns (ListLostReportsResponse);
@@ -37,6 +38,10 @@ message LoginRequest {
 message LoginResponse {
   Passenger passenger = 1;
   string session_token = 2;
+}
+
+message GetPassengerRequest {
+  string passenger_id = 1;
 }
 
 message LostReport {
