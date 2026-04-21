@@ -165,6 +165,7 @@ type LoginResult struct {
 type PassengerUsecase interface {
 	// Login verifies the Google ID token (GOOGLE_CLIENT_ID), creates or updates the passenger row, and returns a JWT.
 	Login(ctx context.Context, in LoginInput) (*LoginResult, error)
+	GetPassengerByID(ctx context.Context, passengerID string) (*domain.Passenger, error)
 	CreateLostReport(ctx context.Context, in CreateLostReportInput) (*LostReport, error)
 	UpdateLostReport(ctx context.Context, in UpdateLostReportInput) (*LostReport, error)
 	ListLostReports(ctx context.Context, in ListLostReportsInput) ([]LostReport, error)

@@ -42,6 +42,12 @@ class LoginResponse(_message.Message):
     session_token: str
     def __init__(self, passenger: _Optional[_Union[Passenger, _Mapping]] = ..., session_token: _Optional[str] = ...) -> None: ...
 
+class GetPassengerRequest(_message.Message):
+    __slots__ = ("passenger_id",)
+    PASSENGER_ID_FIELD_NUMBER: _ClassVar[int]
+    passenger_id: str
+    def __init__(self, passenger_id: _Optional[str] = ...) -> None: ...
+
 class LostReport(_message.Message):
     __slots__ = ("id", "reporter_passenger_id", "item_name", "item_description", "item_type", "brand", "model", "color", "material", "item_condition", "category", "location_lost", "route_or_station", "route_id", "date_lost", "status", "created_at", "updated_at")
     ID_FIELD_NUMBER: _ClassVar[int]

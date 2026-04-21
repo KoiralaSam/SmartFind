@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell, BellDot, CheckCheck, Loader2, ShieldCheck, X } from "lucide-react";
 import {
   passengerFileClaim,
+  passengerListClaims,
   passengerListNotifications,
   passengerMarkNotificationsRead,
 } from "../api/gateway";
@@ -48,6 +49,7 @@ export function NotificationsPanel() {
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
   const [claimedIds, setClaimedIds] = useState(() => new Set());
+  const [claimedItemIds, setClaimedItemIds] = useState(() => new Set());
   const buttonRef = useRef(null);
   const panelRef = useRef(null);
 
@@ -56,18 +58,37 @@ export function NotificationsPanel() {
     [notifications],
   );
 
+  const refreshClaimedItems = useCallback(async () => {
+    try {
+      const res = await passengerListClaims({ limit: 200, offset: 0 });
+      const next = new Set();
+      for (const c of Array.isArray(res?.claims) ? res.claims : []) {
+        const st = String(c?.status || "").toLowerCase();
+        if (st !== "pending" && st !== "approved") continue;
+        const itemId = String(c?.item_id || "").trim();
+        if (itemId) next.add(itemId);
+      }
+      setClaimedItemIds(next);
+    } catch {
+      // non-blocking; server still prevents duplicates
+    }
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const res = await passengerListNotifications({ limit: 30 });
+      const [res] = await Promise.all([
+        passengerListNotifications({ limit: 30 }),
+        refreshClaimedItems(),
+      ]);
       setNotifications(Array.isArray(res?.notifications) ? res.notifications : []);
     } catch (e) {
       setError(e?.message || "Failed to load notifications.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [refreshClaimedItems]);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,7 +96,10 @@ export function NotificationsPanel() {
     async function tick() {
       if (cancelled) return;
       try {
-        const res = await passengerListNotifications({ limit: 30 });
+        const [res] = await Promise.all([
+          passengerListNotifications({ limit: 30 }),
+          refreshClaimedItems(),
+        ]);
         if (!cancelled) {
           setNotifications(Array.isArray(res?.notifications) ? res.notifications : []);
         }
@@ -89,7 +113,7 @@ export function NotificationsPanel() {
       cancelled = true;
       if (timer) clearInterval(timer);
     };
-  }, []);
+  }, [refreshClaimedItems]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -250,7 +274,9 @@ export function NotificationsPanel() {
               <ul className="space-y-2">
                 {notifications.map((n) => {
                   const unread = isUnread(n);
-                  const claimed = claimedIds.has(n.id);
+                  const claimed =
+                    claimedIds.has(n.id) ||
+                    claimedItemIds.has(String(n?.found_item_id || "").trim());
                   const busy = busyId === n.id;
                   return (
                     <li

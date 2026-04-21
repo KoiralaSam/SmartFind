@@ -91,6 +91,14 @@ func (s *PassengerService) Login(ctx context.Context, in inbound.LoginInput) (*i
 	return &inbound.LoginResult{Passenger: p, SessionToken: token}, nil
 }
 
+func (s *PassengerService) GetPassengerByID(ctx context.Context, passengerID string) (*domain.Passenger, error) {
+	passengerID = strings.TrimSpace(passengerID)
+	if passengerID == "" {
+		return nil, errors.New("passenger_id is required")
+	}
+	return s.repo.GetByID(ctx, passengerID)
+}
+
 func (s *PassengerService) CreateLostReport(ctx context.Context, in inbound.CreateLostReportInput) (*inbound.LostReport, error) {
 	embedding, err := embedLostReportOpenAI(ctx, in)
 	if err != nil {

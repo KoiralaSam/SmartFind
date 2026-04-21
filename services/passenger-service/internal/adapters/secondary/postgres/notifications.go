@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"errors"
-	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -11,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"smartfind/services/passenger-service/internal/core/ports/inbound"
-	"smartfind/shared/s3media"
 )
 
 func (r *PassengerRepository) ListNotifications(ctx context.Context, passengerID string, limit int, unreadOnly bool, createdBefore time.Time) ([]inbound.PassengerMatchNotification, error) {
@@ -63,12 +61,6 @@ func (r *PassengerRepository) ListNotifications(ctx context.Context, passengerID
 	}
 	defer rows.Close()
 
-	// Get a presigner once for all rows (nil if AWS env vars aren't set).
-	presigner, presignErr := s3media.GetPresigner(ctx)
-	if presignErr != nil {
-		log.Printf("notifications: presigner unavailable (%v) — images will not load", presignErr)
-	}
-
 	out := make([]inbound.PassengerMatchNotification, 0)
 	for rows.Next() {
 		var nt inbound.PassengerMatchNotification
@@ -87,32 +79,8 @@ func (r *PassengerRepository) ListNotifications(ctx context.Context, passengerID
 			nt.ReadAt = readAt.Time
 		}
 
-		// Convert stored S3 keys to fresh presigned URLs. If presigning fails
-		// (e.g. AWS not configured in dev) we silently skip that image so the
-		// rest of the notification still renders.
-		if presigner != nil {
-			keys := []string(rawKeys)
-			urls := make([]string, 0, len(keys))
-			for _, k := range keys {
-				if strings.TrimSpace(k) == "" {
-					continue
-				}
-				u, err := presigner.PresignGet(ctx, k)
-				if err == nil && strings.TrimSpace(u) != "" {
-					urls = append(urls, u)
-				}
-			}
-			nt.ImageURLs = urls
-
-			if strings.TrimSpace(rawPrimary) != "" {
-				if u, err := presigner.PresignGet(ctx, rawPrimary); err == nil {
-					nt.PrimaryImageURL = u
-				}
-			}
-			if nt.PrimaryImageURL == "" && len(urls) > 0 {
-				nt.PrimaryImageURL = urls[0]
-			}
-		}
+		// Convert stored S3 keys to fresh presigned URLs.
+		nt.ImageURLs, nt.PrimaryImageURL = presignFoundItemImageURLs(ctx, []string(rawKeys), rawPrimary)
 
 		out = append(out, nt)
 	}
