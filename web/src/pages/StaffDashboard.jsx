@@ -9,7 +9,9 @@ import {
   LogOut,
   MapPin,
   Package,
+  Pencil,
   Plus,
+  Trash2,
   Train,
   Upload,
   X,
@@ -20,7 +22,9 @@ import {
   staffCreateFoundItem,
   staffListFoundItems,
   staffListTransitRoutes,
+  staffUpdateFoundItem,
   staffUpdateFoundItemStatus,
+  staffDeleteFoundItem,
   mediaInitUploads,
   mediaDeleteUpload,
 } from "../api/gateway";
@@ -168,7 +172,7 @@ function StatCard({ icon: Icon, label, value, accent }) {
 }
 
 // ─── Item Card ───────────────────────────────────────────────
-function ItemCard({ item, onClaim }) {
+function ItemCard({ item, onClaim, onEdit, onDelete }) {
   return (
     <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
       <div className="flex items-start gap-4">
@@ -195,44 +199,315 @@ function ItemCard({ item, onClaim }) {
           </div>
         )}
         <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
-        <div className="min-w-0 flex-1 space-y-1">
-          <h3 className="truncate text-sm font-semibold">{item.itemName}</h3>
-          <p className="text-xs text-muted-foreground">
-            {item.category || "Uncategorized"}
-            {item.color && item.color !== "unknown" ? ` · ${item.color}` : ""}
-            {item.brand && item.brand !== "unknown" ? ` · ${item.brand}` : ""}
-            {item.locationFound ? ` · ${item.locationFound}` : ""}
-          </p>
-          {item.description && (
-            <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-              {item.description}
+          <div className="min-w-0 flex-1 space-y-1">
+            <h3 className="truncate text-sm font-semibold">{item.itemName}</h3>
+            <p className="text-xs text-muted-foreground">
+              {item.category || "Uncategorized"}
+              {item.color && item.color !== "unknown" ? ` · ${item.color}` : ""}
+              {item.brand && item.brand !== "unknown" ? ` · ${item.brand}` : ""}
+              {item.locationFound ? ` · ${item.locationFound}` : ""}
             </p>
-          )}
-          <p className="text-[11px] text-muted-foreground/70">
-            Found {item.dateFound || "N/A"}
-            {item.routeOrStation ? ` — ${item.routeOrStation}` : ""}
-          </p>
-          {item.status === "claimed" && item.claimedAt && (
-            <p className="text-[11px] font-medium text-green-600">
-              Claimed on {new Date(item.claimedAt).toLocaleDateString()}
+            {item.description && (
+              <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                {item.description}
+              </p>
+            )}
+            <p className="text-[11px] text-muted-foreground/70">
+              Found {item.dateFound || "N/A"}
+              {item.routeOrStation ? ` — ${item.routeOrStation}` : ""}
             </p>
-          )}
+            {item.status === "claimed" && item.claimedAt && (
+              <p className="text-[11px] font-medium text-green-600">
+                Claimed on {new Date(item.claimedAt).toLocaleDateString()}
+              </p>
+            )}
+          </div>
+
+          <div className="flex shrink-0 items-center gap-2">
+            {onClaim && item.status === "unclaimed" && (
+              <button
+                type="button"
+                onClick={() => onClaim(item.id)}
+                className="rounded-xl border border-border bg-foreground px-3 py-1.5 text-xs font-medium text-background transition hover:opacity-90"
+              >
+                Mark Claimed
+              </button>
+            )}
+            {item.status === "claimed" && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-700">
+                <CheckCircle2 className="h-3 w-3" />
+                Claimed
+              </span>
+            )}
+            {onEdit && (
+              <button
+                type="button"
+                onClick={() => onEdit(item)}
+                title="Edit item"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground transition hover:bg-muted hover:text-foreground"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {onDelete && (
+              <button
+                type="button"
+                onClick={() => onDelete(item)}
+                title="Delete item"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground transition hover:bg-red-50 hover:text-red-600"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
         </div>
-        {onClaim && item.status === "unclaimed" && (
+      </div>
+    </div>
+  );
+}
+
+// ─── Edit Found Item Modal ────────────────────────────────────
+function EditFoundItemModal({ item, routes, onClose, onSave }) {
+  const fieldCls =
+    "flex h-11 w-full rounded-xl border border-input bg-background px-3.5 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+
+  const [form, setForm] = useState({
+    itemName: item.itemName || "",
+    itemDescription: item.description || "",
+    itemType: item.itemType || "",
+    brand: item.brand || "",
+    model: item.model || "",
+    color: item.color || "",
+    material: item.material || "",
+    itemCondition: item.itemCondition || "",
+    category: item.category || "",
+    locationFound: item.locationFound || "",
+    routeOrStation: item.routeOrStation || "",
+    routeId: item.routeId || "",
+    dateFound: item.dateFound || "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  function set(key) {
+    return (e) => setForm((prev) => ({ ...prev, [key]: e.target.value }));
+  }
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!form.itemName.trim()) {
+      setError("Item name is required.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      await onSave(item.id, form);
+      onClose();
+    } catch (err) {
+      setError(err?.message || "Failed to save changes.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div className="relative z-10 w-full max-h-[90vh] overflow-y-auto rounded-t-2xl sm:max-w-lg sm:rounded-2xl border border-border bg-background shadow-xl">
+        <div className="sticky top-0 flex items-center justify-between border-b border-border bg-background px-5 py-4">
+          <h2 className="text-base font-semibold">Edit Found Item</h2>
           <button
             type="button"
-            onClick={() => onClaim(item.id)}
-            className="shrink-0 rounded-xl border border-border bg-foreground px-3 py-1.5 text-xs font-medium text-background transition hover:opacity-90"
+            onClick={onClose}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
           >
-            Mark Claimed
+            <X className="h-4 w-4" />
           </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4 p-5">
+          {error && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+              {error}
+            </div>
+          )}
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium leading-none">
+              Item Name <span className="text-destructive">*</span>
+            </label>
+            <input
+              type="text"
+              required
+              value={form.itemName}
+              onChange={set("itemName")}
+              className={fieldCls}
+              placeholder="e.g. Black backpack"
+            />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none">Category</label>
+              <select value={form.category} onChange={set("category")} className={fieldCls}>
+                <option value="">— Select —</option>
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none">Color</label>
+              <input
+                type="text"
+                value={form.color}
+                onChange={set("color")}
+                className={fieldCls}
+                placeholder="e.g. Black"
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none">Brand</label>
+              <input type="text" value={form.brand} onChange={set("brand")} className={fieldCls} placeholder="e.g. Nike" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none">Model</label>
+              <input type="text" value={form.model} onChange={set("model")} className={fieldCls} placeholder="e.g. Air Max" />
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none">Material</label>
+              <input type="text" value={form.material} onChange={set("material")} className={fieldCls} placeholder="e.g. Leather" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none">Condition</label>
+              <input type="text" value={form.itemCondition} onChange={set("itemCondition")} className={fieldCls} placeholder="e.g. Good" />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium leading-none">Description</label>
+            <textarea
+              rows={3}
+              value={form.itemDescription}
+              onChange={set("itemDescription")}
+              className="flex w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              placeholder="Describe the item…"
+            />
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none">Location Found</label>
+              <input type="text" value={form.locationFound} onChange={set("locationFound")} className={fieldCls} placeholder="e.g. Bus seat 14A" />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none">Date Found</label>
+              <input type="date" value={form.dateFound} onChange={set("dateFound")} className={fieldCls} />
+            </div>
+          </div>
+
+          {routes.length > 0 && (
+            <div className="space-y-2">
+              <label className="text-sm font-medium leading-none">Route / Station</label>
+              <select value={form.routeId} onChange={(e) => {
+                const sel = routes.find((r) => r.id === e.target.value);
+                setForm((prev) => ({
+                  ...prev,
+                  routeId: e.target.value,
+                  routeOrStation: sel?.route_name || prev.routeOrStation,
+                }));
+              }} className={fieldCls}>
+                <option value="">— Unchanged —</option>
+                {routes.map((r) => (
+                  <option key={r.id} value={r.id}>{r.route_name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-medium transition hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 rounded-xl bg-foreground px-4 py-2.5 text-sm font-medium text-background transition hover:opacity-90 disabled:opacity-50"
+            >
+              {loading ? "Saving…" : "Save Changes"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Delete Confirm Modal ─────────────────────────────────────
+function DeleteConfirmModal({ item, onClose, onConfirm }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleConfirm() {
+    setLoading(true);
+    setError("");
+    try {
+      await onConfirm(item.id);
+      onClose();
+    } catch (err) {
+      setError(err?.message || "Failed to delete item.");
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-sm rounded-2xl border border-border bg-background p-6 shadow-xl">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-red-100">
+          <Trash2 className="h-5 w-5 text-red-600" />
+        </div>
+        <h2 className="mb-1 text-base font-semibold">Delete Found Item</h2>
+        <p className="mb-1 text-sm text-muted-foreground">
+          Are you sure you want to delete{" "}
+          <span className="font-medium text-foreground">{item.itemName}</span>?
+          This also removes its embedding and cannot be undone.
+        </p>
+        {error && (
+          <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </p>
         )}
-        {item.status === "claimed" && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-xs font-medium text-green-700">
-            <CheckCircle2 className="h-3 w-3" />
-            Claimed
-          </span>
-        )}
+        <div className="mt-5 flex gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-medium transition hover:bg-muted"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={loading}
+            className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+          >
+            {loading ? "Deleting…" : "Delete"}
+          </button>
         </div>
       </div>
     </div>
@@ -358,7 +633,7 @@ export default function StaffDashboard() {
   }, [refreshItems]);
 
   useEffect(() => {
-    if (!user?.id || tab !== "upload") return undefined;
+    if (!user?.id) return undefined;
     let cancelled = false;
     (async () => {
       try {
@@ -373,7 +648,7 @@ export default function StaffDashboard() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, tab]);
+  }, [user?.id]);
 
   const unclaimed = items.filter((i) => i.status === "unclaimed");
   const claimed = items.filter((i) => i.status === "claimed");
@@ -768,12 +1043,75 @@ export default function StaffDashboard() {
     [user?.id],
   );
 
+  // ── Edit / Delete state ───────────────────────────────────
+  const [editItem, setEditItem] = useState(null);
+  const [deleteItem, setDeleteItem] = useState(null);
+
+  const handleSaveEdit = useCallback(
+    async (foundItemId, form) => {
+      if (!user?.id) throw new Error("not authenticated");
+      const body = {
+        staff_id: user.id,
+        item_name: form.itemName || undefined,
+        item_description: form.itemDescription || undefined,
+        item_type: form.itemType || undefined,
+        brand: form.brand || undefined,
+        model: form.model || undefined,
+        color: form.color || undefined,
+        material: form.material || undefined,
+        item_condition: form.itemCondition || undefined,
+        category: form.category || undefined,
+        location_found: form.locationFound || undefined,
+        route_or_station: form.routeOrStation || undefined,
+        route_id: form.routeId || undefined,
+        date_found: form.dateFound
+          ? new Date(form.dateFound).toISOString()
+          : undefined,
+      };
+      // strip undefined keys so the backend only patches what changed
+      const cleaned = Object.fromEntries(
+        Object.entries(body).filter(([, v]) => v !== undefined),
+      );
+      const updated = await staffUpdateFoundItem(foundItemId, cleaned);
+      const mapped = mapFoundItemDTO(updated);
+      setItems((prev) =>
+        prev.map((item) => (item.id === foundItemId ? { ...item, ...(mapped || {}) } : item)),
+      );
+    },
+    [user?.id],
+  );
+
+  const handleConfirmDelete = useCallback(
+    async (foundItemId) => {
+      if (!user?.id) throw new Error("not authenticated");
+      await staffDeleteFoundItem(foundItemId, user.id);
+      setItems((prev) => prev.filter((item) => item.id !== foundItemId));
+    },
+    [user?.id],
+  );
+
   if (!tab) {
     return <Navigate to="/staff/dashboard" replace />;
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-muted/40 to-background">
+      {editItem && (
+        <EditFoundItemModal
+          item={editItem}
+          routes={transitRoutes}
+          onClose={() => setEditItem(null)}
+          onSave={handleSaveEdit}
+        />
+      )}
+      {deleteItem && (
+        <DeleteConfirmModal
+          item={deleteItem}
+          onClose={() => setDeleteItem(null)}
+          onConfirm={handleConfirmDelete}
+        />
+      )}
+
       {/* ─── Header ─────────────────────────────────────────── */}
       <header className="sticky top-0 z-20 border-b border-border/80 bg-background/90 backdrop-blur-sm">
         <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
@@ -906,6 +1244,8 @@ export default function StaffDashboard() {
                       key={item.id}
                       item={item}
                       onClaim={item.status === "unclaimed" ? handleClaim : undefined}
+                      onEdit={setEditItem}
+                      onDelete={setDeleteItem}
                     />
                   ))}
                   {items.length > 5 && (
@@ -1318,7 +1658,13 @@ export default function StaffDashboard() {
             ) : (
               <div className="space-y-3">
                 {unclaimed.map((item) => (
-                  <ItemCard key={item.id} item={item} onClaim={handleClaim} />
+                  <ItemCard
+                    key={item.id}
+                    item={item}
+                    onClaim={handleClaim}
+                    onEdit={setEditItem}
+                    onDelete={setDeleteItem}
+                  />
                 ))}
               </div>
             )}
@@ -1347,7 +1693,12 @@ export default function StaffDashboard() {
             ) : (
               <div className="space-y-3">
                 {claimed.map((item) => (
-                  <ItemCard key={item.id} item={item} />
+                  <ItemCard
+                    key={item.id}
+                    item={item}
+                    onEdit={setEditItem}
+                    onDelete={setDeleteItem}
+                  />
                 ))}
               </div>
             )}

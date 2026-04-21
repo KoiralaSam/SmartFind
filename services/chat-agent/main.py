@@ -926,7 +926,10 @@ async def chat(req: ChatRequest):
             return ChatResponse(reply=reply, done=is_done(reply))
 
         # If a check_my_lost_item dispatch came back needing disambiguation,
-        # don't return an empty match card; ask the passenger to pick a report.
+        # first try to resolve the ambiguity from the user's original query
+        # (e.g. "find my keys" already names the item → no prompt needed).
+        # Only fall back to the choice prompt when the original message is
+        # genuinely ambiguous.
         if (
             dispatch.action == "check_my_lost_item"
             and dispatch.ok
@@ -934,13 +937,39 @@ async def chat(req: ChatRequest):
             and dispatch.data.get("needs_choice")
         ):
             reports_list = dispatch.data.get("reports") or []
-            prompt_reply = _format_reports_choice_prompt(reports_list)
-            if req.passenger_id:
-                try:
-                    await _session_append_assistant(req.passenger_id, prompt_reply)
-                except Exception:
-                    pass
-            return ChatResponse(reply=prompt_reply, done=False)
+            # Attempt to resolve from the original user message that triggered
+            # this path, before forcing a follow-up question.
+            original_user_text = str(conversation[-1].get("content", "") or "") if conversation else ""
+            pre_chosen = _resolve_report_choice(original_user_text, reports_list)
+            if not pre_chosen and reports_list and _answer_is_vague_choice(original_user_text):
+                pre_chosen = str(reports_list[0].get("id") or "")
+
+            if pre_chosen:
+                # We resolved it — dispatch directly without prompting.
+                dispatch = await passenger_grpc.dispatch_from_chat_reply(
+                    passenger_id=req.passenger_id,
+                    chat_reply_text=json.dumps(
+                        {
+                            "action": "check_my_lost_item",
+                            "data": {
+                                "status": "open",
+                                "limit": 10,
+                                "lost_report_id": pre_chosen,
+                                "auto_default": True,
+                            },
+                        }
+                    ),
+                    forwarded_token=req.forwarded_token,
+                )
+                reply = "Got it — checking that report for matching found items…"
+            else:
+                prompt_reply = _format_reports_choice_prompt(reports_list)
+                if req.passenger_id:
+                    try:
+                        await _session_append_assistant(req.passenger_id, prompt_reply)
+                    except Exception:
+                        pass
+                return ChatResponse(reply=prompt_reply, done=False)
 
         return ChatResponse(
             reply=reply,

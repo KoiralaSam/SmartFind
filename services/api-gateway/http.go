@@ -428,6 +428,118 @@ func staffUpdateFoundItemStatusHandler(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, foundItemPBToDTO(r.Context(), resp))
 }
 
+func staffUpdateFoundItemHandler(w http.ResponseWriter, r *http.Request) {
+	// Path: PUT /staff/found-items/{id}
+	foundItemID := strings.TrimPrefix(r.URL.Path, "/staff/found-items/")
+	foundItemID = strings.TrimSpace(foundItemID)
+	if foundItemID == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "found_item_id is required in path"})
+		return
+	}
+
+	var req StaffUpdateFoundItemRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid json"})
+		return
+	}
+	if strings.TrimSpace(req.StaffID) == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "staff_id is required"})
+		return
+	}
+
+	pbReq := &staffpb.UpdateFoundItemRequest{
+		StaffId:         req.StaffID,
+		FoundItemId:     foundItemID,
+		ItemName:        req.ItemName,
+		ItemDescription: req.ItemDescription,
+		ItemType:        req.ItemType,
+		Brand:           req.Brand,
+		Model:           req.Model,
+		Color:           req.Color,
+		Material:        req.Material,
+		ItemCondition:   req.ItemCondition,
+		Category:        req.Category,
+		LocationFound:   req.LocationFound,
+		RouteOrStation:  req.RouteOrStation,
+		RouteId:         req.RouteID,
+		ImageKeys:       req.ImageKeys,
+		PrimaryImageKey: req.PrimaryImageKey,
+	}
+	if strings.TrimSpace(req.DateFound) != "" {
+		t, err := time.Parse(time.RFC3339, strings.TrimSpace(req.DateFound))
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "date_found must be RFC3339"})
+			return
+		}
+		pbReq.DateFound = timestamppb.New(t)
+	}
+
+	staffClient, err := grpcclients.NewStaffGRPCClient()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "failed to connect to staff service"})
+		return
+	}
+	defer staffClient.Close()
+
+	forwarded := forwardedTokenFromRequest(r)
+	if forwarded == "" {
+		writeJSON(w, http.StatusUnauthorized, ErrorResponse{Error: "missing session token"})
+		return
+	}
+	ctx := grpcclient.WithForwardedToken(r.Context(), forwarded)
+
+	resp, err := staffClient.Client.UpdateFoundItem(ctx, pbReq)
+	if err != nil {
+		writeGRPCError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, foundItemPBToDTO(r.Context(), resp))
+}
+
+func staffDeleteFoundItemHandler(w http.ResponseWriter, r *http.Request) {
+	// Path: DELETE /staff/found-items/{id}
+	foundItemID := strings.TrimPrefix(r.URL.Path, "/staff/found-items/")
+	foundItemID = strings.TrimSpace(foundItemID)
+	if foundItemID == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "found_item_id is required in path"})
+		return
+	}
+
+	var req StaffDeleteFoundItemRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "invalid json"})
+		return
+	}
+	if strings.TrimSpace(req.StaffID) == "" {
+		writeJSON(w, http.StatusBadRequest, ErrorResponse{Error: "staff_id is required"})
+		return
+	}
+
+	staffClient, err := grpcclients.NewStaffGRPCClient()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "failed to connect to staff service"})
+		return
+	}
+	defer staffClient.Close()
+
+	forwarded := forwardedTokenFromRequest(r)
+	if forwarded == "" {
+		writeJSON(w, http.StatusUnauthorized, ErrorResponse{Error: "missing session token"})
+		return
+	}
+	ctx := grpcclient.WithForwardedToken(r.Context(), forwarded)
+
+	_, err = staffClient.Client.DeleteFoundItem(ctx, &staffpb.DeleteFoundItemRequest{
+		StaffId:     req.StaffID,
+		FoundItemId: foundItemID,
+	})
+	if err != nil {
+		writeGRPCError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func staffListFoundItemsHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)

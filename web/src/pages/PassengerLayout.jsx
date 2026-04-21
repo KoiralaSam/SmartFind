@@ -1,7 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 import { ClipboardList, LogOut, MessageSquareText, ShieldCheck } from "lucide-react";
 import { AccountAvatar } from "../components/AccountAvatar";
-import { NotificationsPanel } from "../components/NotificationsPanel";
 import { useAuth } from "../context/useAuth";
 
 function NavItem({ to, icon: Icon, label, compact = false }) {
@@ -47,12 +46,6 @@ export default function PassengerLayout() {
             <NavItem to="/passenger/claims" icon={ShieldCheck} label="Claims" />
           </nav>
           <div className="mt-auto">
-            <div className="flex items-center justify-between gap-2 pb-2">
-              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                Notifications
-              </p>
-              <NotificationsPanel />
-            </div>
             <button
               type="button"
               onClick={() => logout()}
@@ -85,7 +78,6 @@ export default function PassengerLayout() {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <NotificationsPanel />
                 <AccountAvatar user={user} sizeClass="h-8 w-8" />
                 <button
                   type="button"

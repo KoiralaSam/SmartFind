@@ -23,6 +23,18 @@ service StaffService {
   // Auth: requires x-internal-token; does NOT require x-forwarded-token.
   rpc SearchFoundItemMatchesByEmbedding(SearchFoundItemMatchesByEmbeddingRequest) returns (SearchFoundItemMatchesByEmbeddingResponse);
 
+  // Edits the free-form descriptive fields of a found item owned by the
+  // calling staff member. Any of the twelve embedding slots that changed
+  // causes the service to regenerate and upsert the item's embedding so
+  // future similarity searches reflect the correction. Image keys may
+  // also be replaced in the same call.
+  rpc UpdateFoundItem(UpdateFoundItemRequest) returns (FoundItem);
+
+  // Hard-deletes a found item posted by the calling staff member.
+  // Cascades to found_item_embeddings and rejects when any pending or
+  // approved claim exists for the item.
+  rpc DeleteFoundItem(DeleteFoundItemRequest) returns (google.protobuf.Empty);
+
   rpc ListClaims(ListClaimsRequest) returns (ListClaimsResponse);
   rpc ReviewClaim(ReviewClaimRequest) returns (ItemClaim);
 
@@ -137,6 +149,36 @@ message SearchFoundItemMatchesByEmbeddingResponse {
 message FoundItemMatch {
   FoundItem item = 1;
   double similarity_score = 2;
+}
+
+// UpdateFoundItemRequest patches any subset of the descriptive fields on a
+// found item. Fields left as the proto default (empty string / zero
+// timestamp) are NOT written — send a single space to intentionally clear
+// a text field. When image_keys is non-empty the full key list is replaced.
+// re_embed is set automatically by the service; callers may leave it unset.
+message UpdateFoundItemRequest {
+  string staff_id     = 1;
+  string found_item_id = 2;
+  string item_name        = 3;
+  string item_description = 4;
+  string item_type        = 5;
+  string brand            = 6;
+  string model            = 7;
+  string color            = 8;
+  string material         = 9;
+  string item_condition   = 10;
+  string category         = 11;
+  string location_found   = 12;
+  string route_or_station = 13;
+  string route_id         = 14;
+  google.protobuf.Timestamp date_found = 15;
+  repeated string image_keys   = 16;
+  string primary_image_key     = 17;
+}
+
+message DeleteFoundItemRequest {
+  string staff_id      = 1;
+  string found_item_id = 2;
 }
 
 message UpdateFoundItemStatusRequest {
