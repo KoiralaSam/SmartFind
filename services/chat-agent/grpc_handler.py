@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
+from zoneinfo import ZoneInfo
 
 import grpc
 from google.protobuf.json_format import MessageToDict
@@ -43,6 +44,8 @@ _PROTO_PY_PASSENGER_DIR = _find_proto_py_passenger_dir()
 # so we must ensure the generated folder is on sys.path.
 if str(_PROTO_PY_PASSENGER_DIR) not in sys.path:
     sys.path.insert(0, str(_PROTO_PY_PASSENGER_DIR))
+
+_CENTRAL_TZ = ZoneInfo("America/Chicago")
 
 import passenger_pb2  # noqa: E402
 import passenger_pb2_grpc  # noqa: E402
@@ -88,7 +91,7 @@ def _resolve_relative_date(text: str) -> Optional[datetime.date.__class__]:
     from datetime import date, timedelta
 
     lower = text.strip().lower()
-    today = date.today()
+    today = datetime.now(_CENTRAL_TZ).date()
     relative_map = {
         "today": today,
         "yesterday": today - timedelta(days=1),
@@ -139,8 +142,10 @@ def _parse_date_time(date_str: str, time_str: str) -> datetime:
         except ValueError:
             raise ValueError(f"Could not parse time_lost: '{ts}'")
 
+    # Interpret date/time in Central time, then normalize to UTC.
     combined = datetime.combine(parsed_date, parsed_time)
-    return combined.replace(tzinfo=timezone.utc)
+    local_dt = combined.replace(tzinfo=_CENTRAL_TZ)
+    return local_dt.astimezone(timezone.utc)
 
 
 def _to_timestamp(dt: datetime) -> Timestamp:

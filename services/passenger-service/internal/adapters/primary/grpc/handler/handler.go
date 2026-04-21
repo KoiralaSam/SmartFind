@@ -68,6 +68,39 @@ func (h *Handler) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginRes
 	}, nil
 }
 
+func (h *Handler) GetPassenger(ctx context.Context, req *pb.GetPassengerRequest) (*pb.Passenger, error) {
+	if req == nil {
+		return nil, status.Error(codes.InvalidArgument, "request is required")
+	}
+	passengerID := strings.TrimSpace(req.GetPassengerId())
+	if passengerID == "" {
+		return nil, status.Error(codes.InvalidArgument, "passenger_id is required")
+	}
+	claims, err := auth.ClaimsFromContext(ctx)
+	if err != nil {
+		return nil, status.Error(codes.Unauthenticated, "no verified claims")
+	}
+	switch claims.ActorType {
+	case auth.ActorStaff:
+		// Staff can fetch passenger profile for claim review views.
+	case auth.ActorPassenger:
+		if strings.TrimSpace(claims.PassengerID) != passengerID {
+			return nil, status.Error(codes.PermissionDenied, "forbidden")
+		}
+	default:
+		return nil, status.Error(codes.PermissionDenied, "forbidden")
+	}
+
+	p, err := h.usecase.GetPassengerByID(ctx, passengerID)
+	if err != nil {
+		return nil, status.Error(codes.Internal, "failed to fetch passenger")
+	}
+	if p == nil {
+		return nil, status.Error(codes.NotFound, "passenger not found")
+	}
+	return mapper.PassengerToPB(p), nil
+}
+
 func (h *Handler) CreateLostReport(ctx context.Context, req *pb.CreateLostReportRequest) (*pb.LostReport, error) {
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
