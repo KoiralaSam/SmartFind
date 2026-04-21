@@ -177,6 +177,17 @@ export async function staffDeleteFoundItem(foundItemId, staffId) {
   });
 }
 
+export async function staffListClaims(params) {
+  const q = new URLSearchParams();
+  if (params?.status) q.set("status", params.status);
+  if (params?.itemId) q.set("item_id", params.itemId);
+  if (params?.passengerId) q.set("passenger_id", params.passengerId);
+  if (params?.limit != null) q.set("limit", String(params.limit));
+  if (params?.offset != null) q.set("offset", String(params.offset));
+  const suffix = q.toString() ? `?${q.toString()}` : "";
+  return requestJSON(`/staff/claims${suffix}`, { method: "GET" });
+}
+
 /** Transit lines / routes (DB `routes` table). */
 export async function staffListTransitRoutes(params) {
   const q = new URLSearchParams();
