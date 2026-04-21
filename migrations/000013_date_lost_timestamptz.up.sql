@@ -1,0 +1,3 @@
+ALTER TABLE lost_reports
+    ALTER COLUMN date_lost TYPE TIMESTAMPTZ
+    USING date_lost::TIMESTAMPTZ;
