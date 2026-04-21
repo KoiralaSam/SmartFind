@@ -44,6 +44,11 @@ spec:
                 configMapKeyRef:
                   name: app-config
                   key: PASSENGER_SERVICE_ADDRESS
+            - name: STAFF_SERVICE_ADDRESS
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: STAFF_SERVICE_ADDRESS
             - name: INTERNAL_SERVICE_SECRET
               valueFrom:
                 secretKeyRef:

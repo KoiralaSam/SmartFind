@@ -557,16 +557,15 @@ func (h *Handler) ListRoutes(ctx context.Context, req *pb.ListRoutesRequest) (*p
 	if req == nil {
 		return nil, status.Error(codes.InvalidArgument, "request is required")
 	}
-	claims, err := requireStaffClaims(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	createdBy := strings.TrimSpace(req.GetCreatedByStaffId())
-	if createdBy != "" && createdBy != claims.StaffID {
-		return nil, status.Error(codes.PermissionDenied, "created_by_staff_id mismatch")
+	if claims, err := auth.ClaimsFromContext(ctx); err == nil &&
+		claims.ActorType == auth.ActorStaff &&
+		strings.TrimSpace(claims.StaffID) != "" {
+		if createdBy != "" && createdBy != claims.StaffID {
+			return nil, status.Error(codes.PermissionDenied, "created_by_staff_id mismatch")
+		}
+		createdBy = claims.StaffID
 	}
-	createdBy = claims.StaffID
 
 	routes, err := h.usecase.ListRoutes(ctx, inbound.ListRoutesInput{
 		CreatedByStaffID: createdBy,

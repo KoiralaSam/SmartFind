@@ -38,14 +38,14 @@ class ExtractRequest(BaseModel):
 
 
 class ExtractResponse(BaseModel):
-    item_name: str = "unknown"
-    item_type: str = "unknown"
-    category: str = "Other"
-    brand: str = "unknown"
-    model: str = "unknown"
-    color: str = "unknown"
-    material: str = "unknown"
-    item_condition: str = "unknown"
+    item_name: str = ""
+    item_type: str = ""
+    category: str = ""
+    brand: str = ""
+    model: str = ""
+    color: str = ""
+    material: str = ""
+    item_condition: str = ""
     item_description: str = ""
 
 
@@ -121,4 +121,3 @@ def extract(req: ExtractRequest):
     except Exception as e:
         logger.error(f"Extraction error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-

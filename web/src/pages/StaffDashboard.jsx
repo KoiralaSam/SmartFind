@@ -548,6 +548,13 @@ export default function StaffDashboard() {
 
   // Upload form state
   const [itemName, setItemName] = useState("");
+  const [category, setCategory] = useState("");
+  const [color, setColor] = useState("");
+  const [brand, setBrand] = useState("");
+  const [model, setModel] = useState("");
+  const [material, setMaterial] = useState("");
+  const [itemCondition, setItemCondition] = useState("");
+  const [itemDescription, setItemDescription] = useState("");
   const [locationFound, setLocationFound] = useState("");
   const [selectedRouteId, setSelectedRouteId] = useState("");
   const [transitRoutes, setTransitRoutes] = useState([]);
@@ -562,12 +569,17 @@ export default function StaffDashboard() {
   const extracting = extractingCount > 0;
   const [extractError, setExtractError] = useState(null);
   const [extractionFindings, setExtractionFindings] = useState([]);
-  // Editable fields pre-filled by AI
-  const [editableDescription, setEditableDescription] = useState("");
-  const [editableCategory, setEditableCategory] = useState("");
   const [uploadError, setUploadError] = useState("");
-  const lastAutoDescriptionRef = useRef("");
-  const lastAutoCategoryRef = useRef("");
+  const lastAutoFieldsRef = useRef({
+    itemName: "",
+    category: "",
+    color: "",
+    brand: "",
+    model: "",
+    material: "",
+    itemCondition: "",
+    itemDescription: "",
+  });
 
   const [cameraOpen, setCameraOpen] = useState(false);
   const [cameraError, setCameraError] = useState(null);
@@ -713,9 +725,6 @@ export default function StaffDashboard() {
           { photoId: photo.id, details: data },
         ]);
         setExtractError(null);
-        if (!itemName && isKnownValue(data.item_name)) {
-          setItemName(data.item_name);
-        }
       } catch (err) {
         setExtractError(
           err?.message ||
@@ -731,8 +740,18 @@ export default function StaffDashboard() {
   useEffect(() => {
     if (!extractionFindings.length) {
       setExtractedDetails(null);
-      if (!editableDescription) lastAutoDescriptionRef.current = "";
-      if (!editableCategory) lastAutoCategoryRef.current = "";
+      if (!itemName && !category && !color && !brand && !model && !material && !itemCondition && !itemDescription) {
+        lastAutoFieldsRef.current = {
+          itemName: "",
+          category: "",
+          color: "",
+          brand: "",
+          model: "",
+          material: "",
+          itemCondition: "",
+          itemDescription: "",
+        };
+      }
       return;
     }
 
@@ -742,26 +761,69 @@ export default function StaffDashboard() {
     );
     setExtractedDetails(combined);
 
-    const nextAutoDescription = combined?.item_description || "";
+    const nextAuto = {
+      itemName: isKnownValue(combined?.item_name) ? combined.item_name : "",
+      category: isKnownValue(combined?.category) ? combined.category : "",
+      color: isKnownValue(combined?.color) ? combined.color : "",
+      brand: isKnownValue(combined?.brand) ? combined.brand : "",
+      model: isKnownValue(combined?.model) ? combined.model : "",
+      material: isKnownValue(combined?.material) ? combined.material : "",
+      itemCondition: isKnownValue(combined?.item_condition) ? combined.item_condition : "",
+      itemDescription: combined?.item_description || "",
+    };
+
     if (
-      nextAutoDescription !== editableDescription &&
-      (!editableDescription || editableDescription === lastAutoDescriptionRef.current)
+      nextAuto.itemName &&
+      nextAuto.itemName !== itemName &&
+      (!itemName || itemName === lastAutoFieldsRef.current.itemName)
     ) {
-      setEditableDescription(nextAutoDescription);
-      lastAutoDescriptionRef.current = nextAutoDescription;
+      setItemName(nextAuto.itemName);
+    }
+    if (
+      nextAuto.category !== category &&
+      (!category || category === lastAutoFieldsRef.current.category)
+    ) {
+      setCategory(nextAuto.category);
+    }
+    if (
+      nextAuto.color !== color &&
+      (!color || color === lastAutoFieldsRef.current.color)
+    ) {
+      setColor(nextAuto.color);
+    }
+    if (
+      nextAuto.brand !== brand &&
+      (!brand || brand === lastAutoFieldsRef.current.brand)
+    ) {
+      setBrand(nextAuto.brand);
+    }
+    if (
+      nextAuto.model !== model &&
+      (!model || model === lastAutoFieldsRef.current.model)
+    ) {
+      setModel(nextAuto.model);
+    }
+    if (
+      nextAuto.material !== material &&
+      (!material || material === lastAutoFieldsRef.current.material)
+    ) {
+      setMaterial(nextAuto.material);
+    }
+    if (
+      nextAuto.itemCondition !== itemCondition &&
+      (!itemCondition || itemCondition === lastAutoFieldsRef.current.itemCondition)
+    ) {
+      setItemCondition(nextAuto.itemCondition);
+    }
+    if (
+      nextAuto.itemDescription !== itemDescription &&
+      (!itemDescription || itemDescription === lastAutoFieldsRef.current.itemDescription)
+    ) {
+      setItemDescription(nextAuto.itemDescription);
     }
 
-    const nextAutoCategory = isKnownValue(combined?.category)
-      ? combined.category
-      : "";
-    if (
-      nextAutoCategory !== editableCategory &&
-      (!editableCategory || editableCategory === lastAutoCategoryRef.current)
-    ) {
-      setEditableCategory(nextAutoCategory);
-      lastAutoCategoryRef.current = nextAutoCategory;
-    }
-  }, [extractionFindings, editableCategory, editableDescription]);
+    lastAutoFieldsRef.current = nextAuto;
+  }, [extractionFindings, itemName, category, color, brand, model, material, itemCondition, itemDescription]);
 
   const appendPhotos = useCallback(
     async (newPhotoEntries) => {
@@ -982,17 +1044,14 @@ export default function StaffDashboard() {
         const created = await staffCreateFoundItem({
           staff_id: user.id,
           item_name: itemName.trim(),
-          item_description:
-            editableDescription ||
-            extractedDetails?.item_description ||
-            "",
+          item_description: itemDescription || "",
           item_type: extractedDetails?.item_type || "",
-          brand: extractedDetails?.brand || "",
-          model: extractedDetails?.model || "",
-          color: extractedDetails?.color || "",
-          material: extractedDetails?.material || "",
-          item_condition: extractedDetails?.item_condition || "",
-          category: editableCategory || extractedDetails?.category || "",
+          brand: brand || "",
+          model: model || "",
+          color: color || "",
+          material: material || "",
+          item_condition: itemCondition || "",
+          category: category || "",
           location_found: locationFound.trim(),
           route_or_station: routeOrStationVal,
           route_id: routeIdVal,
@@ -1004,11 +1063,13 @@ export default function StaffDashboard() {
         const mapped = mapFoundItemDTO(created) || {
           id: crypto.randomUUID(),
           itemName: itemName.trim(),
-          description:
-            editableDescription ||
-            extractedDetails?.item_description ||
-            "",
-          category: editableCategory || extractedDetails?.category || "",
+          description: itemDescription || "",
+          category: category || "",
+          brand: brand || "",
+          model: model || "",
+          color: color || "",
+          material: material || "",
+          itemCondition: itemCondition || "",
           locationFound: locationFound.trim(),
           routeOrStation: routeOrStationVal,
           routeId: routeIdVal,
@@ -1027,6 +1088,13 @@ export default function StaffDashboard() {
       }
 
       setItemName("");
+      setCategory("");
+      setColor("");
+      setBrand("");
+      setModel("");
+      setMaterial("");
+      setItemCondition("");
+      setItemDescription("");
       setLocationFound("");
       setSelectedRouteId("");
       setDateFound("");
@@ -1034,15 +1102,28 @@ export default function StaffDashboard() {
       setExtractedDetails(null);
       setExtractError(null);
       setExtractionFindings([]);
-      setEditableDescription("");
-      setEditableCategory("");
-      lastAutoDescriptionRef.current = "";
-      lastAutoCategoryRef.current = "";
+      lastAutoFieldsRef.current = {
+        itemName: "",
+        category: "",
+        color: "",
+        brand: "",
+        model: "",
+        material: "",
+        itemCondition: "",
+        itemDescription: "",
+      };
       setUploadSuccess(true);
       setTimeout(() => setUploadSuccess(false), 3000);
     },
     [
       itemName,
+      category,
+      color,
+      brand,
+      model,
+      material,
+      itemCondition,
+      itemDescription,
       locationFound,
       selectedRouteId,
       transitRoutes,
@@ -1050,8 +1131,6 @@ export default function StaffDashboard() {
       photos,
       user,
       extractedDetails,
-      editableDescription,
-      editableCategory,
     ],
   );
 
@@ -1339,6 +1418,112 @@ export default function StaffDashboard() {
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
+                  <label htmlFor="item-category" className="text-sm font-medium leading-none">
+                    Category
+                  </label>
+                  <select
+                    id="item-category"
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className={field}
+                  >
+                    <option value="">— Select —</option>
+                    {CATEGORIES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="item-color" className="text-sm font-medium leading-none">
+                    Color
+                  </label>
+                  <input
+                    id="item-color"
+                    type="text"
+                    value={color}
+                    onChange={(e) => setColor(e.target.value)}
+                    className={field}
+                    placeholder="e.g. Black"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label htmlFor="item-brand" className="text-sm font-medium leading-none">
+                    Brand
+                  </label>
+                  <input
+                    id="item-brand"
+                    type="text"
+                    value={brand}
+                    onChange={(e) => setBrand(e.target.value)}
+                    className={field}
+                    placeholder="e.g. Apple"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="item-model" className="text-sm font-medium leading-none">
+                    Model
+                  </label>
+                  <input
+                    id="item-model"
+                    type="text"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    className={field}
+                    placeholder="e.g. MacBook Pro"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label htmlFor="item-material" className="text-sm font-medium leading-none">
+                    Material
+                  </label>
+                  <input
+                    id="item-material"
+                    type="text"
+                    value={material}
+                    onChange={(e) => setMaterial(e.target.value)}
+                    className={field}
+                    placeholder="e.g. Metal"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label htmlFor="item-condition" className="text-sm font-medium leading-none">
+                    Condition
+                  </label>
+                  <input
+                    id="item-condition"
+                    type="text"
+                    value={itemCondition}
+                    onChange={(e) => setItemCondition(e.target.value)}
+                    className={field}
+                    placeholder="e.g. Good"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="item-description" className="text-sm font-medium leading-none">
+                  Description
+                </label>
+                <textarea
+                  id="item-description"
+                  rows={3}
+                  value={itemDescription}
+                  onChange={(e) => setItemDescription(e.target.value)}
+                  className="flex w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  placeholder="Describe the item…"
+                />
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
                   <label htmlFor="item-location" className="text-sm font-medium leading-none">
                     Location Found
                   </label>
@@ -1574,46 +1759,18 @@ export default function StaffDashboard() {
                     </span>
                   </div>
 
-                  {/* Editable category */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-muted-foreground">
-                      Category
-                    </label>
-                    <select
-                      value={editableCategory}
-                      onChange={(e) => setEditableCategory(e.target.value)}
-                      className={field}
-                    >
-                      <option value="">— Select category —</option>
-                      {CATEGORIES.map((c) => (
-                        <option key={c} value={c}>{c}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* Editable description */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-muted-foreground">
-                      Description
-                    </label>
-                    <textarea
-                      rows={3}
-                      value={editableDescription}
-                      onChange={(e) => setEditableDescription(e.target.value)}
-                      className="flex w-full rounded-xl border border-input bg-background px-3.5 py-2.5 text-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      placeholder="Describe the item…"
-                    />
-                  </div>
-
                   {/* Read-only detail chips */}
                   <div className="flex flex-wrap gap-2">
                     {[
+                      { label: "Item", value: extractedDetails.item_name },
+                      { label: "Category", value: extractedDetails.category },
                       { label: "Color", value: extractedDetails.color },
                       { label: "Brand", value: extractedDetails.brand },
+                      { label: "Model", value: extractedDetails.model },
                       { label: "Material", value: extractedDetails.material },
                       { label: "Condition", value: extractedDetails.item_condition },
                     ]
-                      .filter(({ value }) => value && value !== "unknown")
+                      .filter(({ value }) => value)
                       .map(({ label, value }) => (
                         <span
                           key={label}

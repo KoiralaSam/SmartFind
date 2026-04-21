@@ -786,7 +786,6 @@ export default function PassengerChatPage() {
                       <audio
                         src={msg.audioUrl}
                         controls
-                        autoPlay={recording}
                         className="w-full"
                       />
                     </div>
