@@ -233,3 +233,10 @@ export async function mediaDeleteUpload(s3Key) {
     body: JSON.stringify({ s3_key: s3Key }),
   });
 }
+
+export async function extractImageDetails(imageBase64) {
+  return requestJSON("/extract", {
+    method: "POST",
+    body: JSON.stringify({ image_base64: imageBase64 }),
+  });
+}
