@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log"
 	"math/rand/v2"
 	"strings"
 	"time"
@@ -226,40 +227,41 @@ func (s *PassengerService) SearchFoundItemMatches(ctx context.Context, in inboun
 		limit = 10
 	}
 
+	report, err := s.repo.GetLostReportForPassenger(ctx, in.PassengerID, in.LostReportID)
+	if err != nil {
+		return nil, err
+	}
+	if report == nil {
+		return []inbound.FoundItemMatch{}, nil
+	}
+
 	embedding, err := s.repo.GetLostReportEmbeddingForPassenger(ctx, in.PassengerID, in.LostReportID)
 	if err != nil {
 		return nil, err
 	}
 	if len(embedding) == 0 {
 		// Backfill embeddings for older lost reports created before embeddings were introduced.
-		rpt, err := s.repo.GetLostReportForPassenger(ctx, in.PassengerID, in.LostReportID)
-		if err != nil {
-			return nil, err
-		}
-		if rpt == nil {
-			return []inbound.FoundItemMatch{}, nil
-		}
 		emb, err := embedLostReportOpenAI(ctx, inbound.CreateLostReportInput{
-			PassengerID:     rpt.ReporterPassengerID,
-			ItemName:        rpt.ItemName,
-			ItemDescription: rpt.ItemDescription,
-			ItemType:        rpt.ItemType,
-			Brand:           rpt.Brand,
-			Model:           rpt.Model,
-			Color:           rpt.Color,
-			Material:        rpt.Material,
-			ItemCondition:   rpt.ItemCondition,
-			Category:        rpt.Category,
-			LocationLost:    rpt.LocationLost,
-			RouteOrStation:  rpt.RouteOrStation,
-			RouteID:         rpt.RouteID,
-			DateLost:        rpt.DateLost,
+			PassengerID:     report.ReporterPassengerID,
+			ItemName:        report.ItemName,
+			ItemDescription: report.ItemDescription,
+			ItemType:        report.ItemType,
+			Brand:           report.Brand,
+			Model:           report.Model,
+			Color:           report.Color,
+			Material:        report.Material,
+			ItemCondition:   report.ItemCondition,
+			Category:        report.Category,
+			LocationLost:    report.LocationLost,
+			RouteOrStation:  report.RouteOrStation,
+			RouteID:         report.RouteID,
+			DateLost:        report.DateLost,
 		})
 		if err != nil {
 			// If embeddings aren't available (e.g. missing API key), degrade gracefully.
 			return []inbound.FoundItemMatch{}, nil
 		}
-		if err := s.repo.UpsertLostReportEmbedding(ctx, rpt.ID, emb); err != nil {
+		if err := s.repo.UpsertLostReportEmbedding(ctx, report.ID, emb); err != nil {
 			return nil, err
 		}
 		embedding = emb
@@ -286,6 +288,7 @@ func (s *PassengerService) SearchFoundItemMatches(ctx context.Context, in inboun
 	}
 
 	out := make([]inbound.FoundItemMatch, 0, len(resp.GetMatches()))
+	candidates := make([]MatchCandidate, 0, len(resp.GetMatches()))
 	for _, m := range resp.GetMatches() {
 		if m == nil || m.GetItem() == nil {
 			continue
@@ -315,6 +318,32 @@ func (s *PassengerService) SearchFoundItemMatches(ctx context.Context, in inboun
 			ImageURLs:       it.GetImageUrls(),
 			PrimaryImageURL: it.GetPrimaryImageUrl(),
 		})
+		candidates = append(candidates, MatchCandidate{
+			FoundItemID:     it.GetId(),
+			ItemName:        it.GetItemName(),
+			SimilarityScore: m.GetSimilarityScore(),
+			PrimaryImageKey: it.GetPrimaryImageKey(),
+			ImageKeys:       it.GetImageKeys(),
+		})
+	}
+
+	if report.Status == "open" && len(candidates) > 0 {
+		passenger, pErr := s.repo.GetByID(ctx, in.PassengerID)
+		if pErr != nil {
+			log.Printf("match notification side effects skipped passenger_id=%s lost_report_id=%s: %v", in.PassengerID, in.LostReportID, pErr)
+		} else if passenger != nil {
+			if _, applyErr := ApplyMatchNotifications(ctx, s.repo, MatchReportContext{
+				LostReportID:   report.ID,
+				PassengerID:    in.PassengerID,
+				PassengerEmail: passenger.Email,
+				LostItemName:   report.ItemName,
+				LastEmailedAt:  report.LastMatchEmailedAt,
+			}, candidates); applyErr != nil {
+				log.Printf("match notification side effects skipped passenger_id=%s lost_report_id=%s: %v", in.PassengerID, in.LostReportID, applyErr)
+			}
+		} else {
+			log.Printf("match notification side effects skipped passenger_id=%s lost_report_id=%s: passenger not found", in.PassengerID, in.LostReportID)
+		}
 	}
 	return out, nil
 }

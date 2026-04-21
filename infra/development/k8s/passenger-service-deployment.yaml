@@ -114,6 +114,49 @@ spec:
                 secretKeyRef:
                   name: s3-credentials
                   key: AWS_S3_PRESIGN_GET_TTL_SECONDS
+            - name: MATCH_EMAIL_IMAGE_TTL_SECONDS
+              value: "604800"
+            - name: MAILTRAP_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: mailtrap-secrets
+                  key: MAILTRAP_API_TOKEN
+            - name: MAILTRAP_FROM_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: mailtrap-secrets
+                  key: MAILTRAP_FROM_EMAIL
+            - name: MAILTRAP_FROM_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: mailtrap-secrets
+                  key: MAILTRAP_FROM_NAME
+                  optional: true
+            - name: PUBLIC_APP_BASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: mailtrap-secrets
+                  key: PUBLIC_APP_BASE_URL
+            - name: MATCH_MAX_NOTIFS_PER_REPORT_PER_DAY
+              valueFrom:
+                secretKeyRef:
+                  name: mailtrap-secrets
+                  key: MATCH_MAX_NOTIFS_PER_REPORT_PER_DAY
+            - name: MATCH_MAX_NOTIFS_PER_PASSENGER_PER_DAY
+              valueFrom:
+                secretKeyRef:
+                  name: mailtrap-secrets
+                  key: MATCH_MAX_NOTIFS_PER_PASSENGER_PER_DAY
+            - name: MATCH_EMAIL_COOLDOWN_MINUTES
+              valueFrom:
+                secretKeyRef:
+                  name: mailtrap-secrets
+                  key: MATCH_EMAIL_COOLDOWN_MINUTES
+            - name: MATCH_EMAIL_MAX_ITEMS
+              valueFrom:
+                secretKeyRef:
+                  name: mailtrap-secrets
+                  key: MATCH_EMAIL_MAX_ITEMS
           readinessProbe:
             tcpSocket:
               port: grpc

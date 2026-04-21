@@ -66,6 +66,8 @@ type LostReport struct {
 	Status              string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	LastMatchCheckedAt  *time.Time
+	LastMatchEmailedAt  *time.Time
 }
 
 type ListLostReportsInput struct {

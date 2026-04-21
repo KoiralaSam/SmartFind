@@ -38,4 +38,8 @@ type PassengerRepository interface {
 
 	ListNotifications(ctx context.Context, passengerID string, limit int, unreadOnly bool, createdBefore time.Time) ([]inbound.PassengerMatchNotification, error)
 	MarkNotificationsRead(ctx context.Context, passengerID string, notificationIDs []string) error
+	CountNotificationsForLostReportSince(ctx context.Context, lostReportID string, window time.Duration) (int, error)
+	CountNotificationsForPassengerSince(ctx context.Context, passengerID string, window time.Duration) (int, error)
+	InsertMatchNotification(ctx context.Context, passengerID, lostReportID, foundItemID string, similarity float64, itemName string, imageKeys []string, primaryImageKey string) (bool, error)
+	UpdateLostReportMatchAudit(ctx context.Context, lostReportID string, checkedAt *time.Time, emailedAt *time.Time) error
 }
