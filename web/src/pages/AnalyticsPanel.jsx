@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { MapContainer, TileLayer, CircleMarker, Tooltip, useMap } from "react-leaflet";
+import { useEffect, useRef, useState } from "react";
+import { MapContainer, TileLayer, CircleMarker, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import {
   BarChart3,
@@ -10,6 +10,7 @@ import {
   Loader2,
   MapPin,
   ShieldAlert,
+  X,
 } from "lucide-react";
 
 const ANALYTICS_BASE_URL =
@@ -61,10 +62,16 @@ function computeRiskLevel(count, max) {
 }
 
 // ─── Geocode via Nominatim ───────────────────────────────────────
+function extractPrimaryLocation(name) {
+  const parts = name.split(/\s*(?:->|→|–|—|\bto\b)\s*/i);
+  return (parts[0] || name).trim();
+}
+
 async function geocode(name) {
+  const query = extractPrimaryLocation(name);
   try {
     const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(name + ", USA")}&format=json&limit=1&countrycodes=us`,
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query + ", USA")}&format=json&limit=1&countrycodes=us`,
       { headers: { "User-Agent": "SmartFind-LostFound/1.0" } }
     );
     const data = await res.json();
@@ -88,15 +95,111 @@ function FitBounds({ coords }) {
   return null;
 }
 
-// ─── Helpers ────────────────────────────────────────────────────
-function TrendIcon({ trend }) {
-  if (trend === "increasing")
-    return <TrendingUp className="h-3.5 w-3.5 text-red-500" />;
-  if (trend === "decreasing")
-    return <TrendingDown className="h-3.5 w-3.5 text-green-500" />;
-  return <Minus className="h-3.5 w-3.5 text-muted-foreground/50" />;
+// ─── SVG Line Chart ─────────────────────────────────────────────
+function DayLineChart({ byDay, reports }) {
+  const W = 560;
+  const H = 210;
+  const PAD = { top: 20, right: 20, bottom: 36, left: 50 };
+  const chartW = W - PAD.left - PAD.right;
+  const chartH = H - PAD.top - PAD.bottom;
+
+  if (!byDay || byDay.length === 0) {
+    return (
+      <div className="flex h-[210px] items-center justify-center text-xs text-muted-foreground">
+        No passenger data yet
+      </div>
+    );
+  }
+
+  const Y_MIN = 0;
+  const Y_MAX = 23;
+  const n = byDay.length; // always 7
+  const xStep = chartW / (n - 1);
+  const yScale = (h) => PAD.top + chartH - ((h - Y_MIN) / (Y_MAX - Y_MIN)) * chartH;
+  const xAt = (i) => PAD.left + i * xStep;
+
+  // Y ticks
+  const yTicks = [0, 6, 12, 18, 23];
+
+  // Line uses avg_hour; days with no data → treat as null, draw gap-free by
+  // using 0 so the line stays continuous (user request).
+  const linePts = byDay.map((d, i) => ({
+    x: xAt(i),
+    y: yScale(d.avg_hour != null ? d.avg_hour : 0),
+    hasData: d.avg_hour != null,
+  }));
+  const polyline = linePts.map((p) => `${p.x},${p.y}`).join(" ");
+
+  // Individual report scatter dots
+  const scatterDots = (reports || []).map((r) => ({
+    x: xAt(r.day_num),
+    y: yScale(r.hour),
+  }));
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ overflow: "visible" }}>
+      {/* grid lines */}
+      {yTicks.map((t) => (
+        <line
+          key={t}
+          x1={PAD.left}
+          x2={PAD.left + chartW}
+          y1={yScale(t)}
+          y2={yScale(t)}
+          stroke="#e5e7eb"
+          strokeWidth="1"
+        />
+      ))}
+
+      {/* y-axis labels */}
+      {yTicks.map((t) => (
+        <text key={t} x={PAD.left - 6} y={yScale(t) + 4} fontSize="9" fill="#9ca3af" textAnchor="end">
+          {String(t).padStart(2, "0")}:00
+        </text>
+      ))}
+
+      {/* continuous average line — spans all 7 days */}
+      <polyline
+        points={polyline}
+        fill="none"
+        stroke="#3b82f6"
+        strokeWidth="2.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        opacity="0.35"
+      />
+
+      {/* individual report dots (exact time each passenger submitted) */}
+      {scatterDots.map((p, i) => (
+        <circle
+          key={i}
+          cx={p.x}
+          cy={p.y}
+          r="5"
+          fill="#3b82f6"
+          stroke="#fff"
+          strokeWidth="2"
+        />
+      ))}
+
+      {/* x-axis day labels */}
+      {byDay.map((d, i) => (
+        <text
+          key={d.day}
+          x={xAt(i)}
+          y={H - 4}
+          fontSize="10"
+          fill="#6b7280"
+          textAnchor="middle"
+        >
+          {d.day}
+        </text>
+      ))}
+    </svg>
+  );
 }
 
+// ─── Helpers ────────────────────────────────────────────────────
 function fmt(dateStr) {
   if (!dateStr) return "—";
   return new Date(dateStr).toLocaleString("en-US", {
@@ -108,23 +211,18 @@ function fmt(dateStr) {
 }
 
 // ─── Stat Card ──────────────────────────────────────────────────
-function StatCard({ icon: Icon, label, value, accent, sub }) {
+function StatCard({ icon: Icon, label, value, accent }) {
   return (
-    <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-      <div className="flex items-start gap-3">
+    <div className="rounded-2xl border border-border bg-card p-3 shadow-sm">
+      <div className="flex items-start gap-2.5">
         <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${accent}`}
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${accent}`}
         >
-          <Icon className="h-5 w-5" />
+          <Icon className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-2xl font-semibold tracking-tight">{value}</p>
+          <p className="text-xl font-semibold tracking-tight">{value}</p>
           <p className="text-xs text-muted-foreground">{label}</p>
-          {sub && (
-            <p className="mt-0.5 truncate text-[11px] text-muted-foreground/60">
-              {sub}
-            </p>
-          )}
         </div>
       </div>
     </div>
@@ -136,35 +234,59 @@ export default function AnalyticsPanel() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  // [{hotspot, coords: [lat, lng] | null}]
   const [mapped, setMapped] = useState([]);
   const [geocoding, setGeocoding] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [temporalByDay, setTemporalByDay] = useState(null);
+  const [temporalReports, setTemporalReports] = useState(null);
 
-  // Fetch heatmap data
+  // Fetch heatmap — re-runs every 60s
   useEffect(() => {
     let cancelled = false;
     async function load() {
-      setLoading(true);
       setError(null);
       try {
         const res = await fetch(`${ANALYTICS_BASE_URL}/analytics/heatmap`);
         if (!res.ok) throw new Error(`Service returned ${res.status}`);
         const json = await res.json();
-        if (!cancelled) setData(json);
+        if (!cancelled) {
+          setData(json);
+          setLoading(false);
+        }
       } catch (err) {
-        if (!cancelled) setError(err.message);
-      } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setError(err.message);
+          setLoading(false);
+        }
       }
     }
     load();
-    return () => { cancelled = true; };
+    const interval = setInterval(load, 60_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+
+  // Fetch temporal data — re-runs every 60s to pick up new lost reports
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTemporal() {
+      try {
+        const res = await fetch(`${ANALYTICS_BASE_URL}/analytics/temporal`);
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled) {
+          setTemporalByDay(json.by_day_of_week ?? null);
+          setTemporalReports(json.reports ?? null);
+        }
+      } catch {}
+    }
+    loadTemporal();
+    const interval = setInterval(loadTemporal, 60_000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
   // Geocode hotspots when data arrives
   useEffect(() => {
     if (!data) return;
-    const isAI = data.source === "stored_report";
     const hotspots = data.hotspots ?? data.locations ?? [];
     if (!hotspots.length) { setMapped([]); return; }
 
@@ -175,8 +297,7 @@ export default function AnalyticsPanel() {
       for (const h of hotspots) {
         if (cancelled) break;
         const coords = await geocode(h.location);
-        results.push({ hotspot: h, coords, isAI });
-        // Rate-limit Nominatim: 1 req/sec
+        results.push({ hotspot: h, coords });
         await new Promise((r) => setTimeout(r, 1100));
       }
       if (!cancelled) {
@@ -188,31 +309,31 @@ export default function AnalyticsPanel() {
     return () => { cancelled = true; };
   }, [data]);
 
-  const isAI = data?.source === "stored_report";
-  const hotspots = data?.hotspots ?? data?.locations ?? [];
+  const rawHotspots = data?.hotspots ?? data?.locations ?? [];
   const totalIncidents =
     data?.total_incidents_analyzed ?? data?.total_incidents ?? 0;
-  const maxCount = hotspots.reduce(
+  const maxCount = rawHotspots.reduce(
     (m, h) => Math.max(m, h.incident_count ?? h.total_incidents ?? 0),
     0
   );
-  const criticalCount = hotspots.filter((h) => {
-    const lvl = isAI
-      ? h.risk_level
-      : computeRiskLevel(h.incident_count ?? h.total_incidents, maxCount);
-    return lvl === "critical";
-  }).length;
+  const hotspots = rawHotspots;
+  const overallRecs = data?.recommendations ?? [];
+  const criticalCount = hotspots.filter(
+    (h) => computeRiskLevel(h.incident_count ?? h.total_incidents ?? 0, maxCount) === "critical"
+  ).length;
   const highRiskCount = hotspots.filter((h) => {
-    const lvl = isAI
-      ? h.risk_level
-      : computeRiskLevel(h.incident_count ?? h.total_incidents, maxCount);
+    const lvl = computeRiskLevel(h.incident_count ?? h.total_incidents ?? 0, maxCount);
     return lvl === "critical" || lvl === "high";
   }).length;
 
   const placedCoords = mapped.filter((m) => m.coords).map((m) => m.coords);
+  const isEmpty = !loading && !error && (hotspots.length === 0 || totalIncidents === 0);
 
-  const isEmpty =
-    !loading && !error && (hotspots.length === 0 || totalIncidents === 0);
+  // Filtered recommendations based on selected dot
+  const withRec = hotspots.filter((h) => h.recommendation);
+  const filteredRecs = selectedLocation
+    ? withRec.filter((h) => h.location === selectedLocation)
+    : withRec;
 
   // ── Loading ─────────────────────────────────────────────────
   if (loading) {
@@ -244,7 +365,7 @@ export default function AnalyticsPanel() {
         <h3 className="mt-4 text-sm font-semibold">No hotspot data yet</h3>
         <p className="mx-auto mt-1.5 max-w-xs text-xs leading-relaxed text-muted-foreground">
           {data?.message ||
-            "Hotspot data will appear here automatically as passengers submit lost item reports."}
+            "Hotspot data will appear here automatically as data arrives."}
         </p>
       </div>
     );
@@ -258,44 +379,21 @@ export default function AnalyticsPanel() {
         <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
           Predictive Analytics
         </p>
-        <h2 className="mt-1 text-xl font-semibold tracking-tight">
-          Hotspot Map
-        </h2>
+        <h2 className="mt-1 text-xl font-semibold tracking-tight">Hotspot Map</h2>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          High-risk routes and stations based on lost &amp; found item reports.
+          High-risk routes and stations based on found item reports.
         </p>
       </div>
 
       {/* stats */}
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        <StatCard
-          icon={BarChart3}
-          label="Total Reports"
-          value={totalIncidents}
-          accent="bg-foreground/10 text-foreground"
-        />
-        <StatCard
-          icon={ShieldAlert}
-          label="High-Risk Zones"
-          value={highRiskCount}
-          accent="bg-orange-100 text-orange-700"
-        />
-        <StatCard
-          icon={Flame}
-          label="Critical Hotspots"
-          value={criticalCount}
-          accent="bg-red-100 text-red-700"
-        />
-        <StatCard
-          icon={Clock}
-          label="Last Updated"
-          value={data?.generated_at ? fmt(data.generated_at) : "Live"}
-          accent="bg-muted text-muted-foreground"
-          sub={data?.report_date ? `Report: ${data.report_date}` : undefined}
-        />
+        <StatCard icon={BarChart3} label="Total Reports" value={totalIncidents} accent="bg-foreground/10 text-foreground" />
+        <StatCard icon={ShieldAlert} label="High-Risk Zones" value={highRiskCount} accent="bg-orange-100 text-orange-700" />
+        <StatCard icon={Flame} label="Critical Hotspots" value={criticalCount} accent="bg-red-100 text-red-700" />
+        <StatCard icon={Clock} label="Last Updated" value={data?.generated_at ? fmt(data.generated_at) : "Live"} accent="bg-muted text-muted-foreground" />
       </div>
 
-      {/* ── MAP — full width centered ── */}
+      {/* ── MAP ── */}
       <div className="overflow-hidden rounded-2xl border border-border shadow-sm" style={{ height: 500 }}>
         {/* legend bar */}
         <div className="flex items-center gap-4 border-b border-border bg-card px-4 py-2.5">
@@ -311,8 +409,13 @@ export default function AnalyticsPanel() {
               </span>
             );
           })}
+          <span className="ml-auto text-[11px] text-muted-foreground">
+            {selectedLocation
+              ? `Showing: ${selectedLocation} — click map to clear`
+              : "Click a dot to filter recommendations"}
+          </span>
           {geocoding && (
-            <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />
               Placing pins…
             </span>
@@ -327,6 +430,8 @@ export default function AnalyticsPanel() {
           maxBoundsViscosity={1.0}
           style={{ height: "calc(100% - 41px)", width: "100%" }}
           scrollWheelZoom
+          // Click on map background clears selection
+          eventHandlers={{ click: () => setSelectedLocation(null) }}
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -335,11 +440,12 @@ export default function AnalyticsPanel() {
 
           {placedCoords.length > 0 && <FitBounds coords={placedCoords} />}
 
-          {mapped.map(({ hotspot: h, coords, isAI: ai }, i) => {
+          {mapped.map(({ hotspot: h, coords }, i) => {
             if (!coords) return null;
             const count = h.incident_count ?? h.total_incidents ?? 0;
-            const lvl = ai ? h.risk_level : computeRiskLevel(count, maxCount);
+            const lvl = computeRiskLevel(count, maxCount);
             const risk = RISK[lvl] || RISK.low;
+            const isSelected = selectedLocation === h.location;
 
             return (
               <CircleMarker
@@ -347,38 +453,20 @@ export default function AnalyticsPanel() {
                 center={coords}
                 radius={risk.radius}
                 pathOptions={{
-                  color: risk.color,
+                  color: isSelected ? "#1d4ed8" : risk.color,
                   fillColor: risk.fill,
-                  fillOpacity: 0.75,
-                  weight: 2,
+                  fillOpacity: isSelected ? 1 : 0.75,
+                  weight: isSelected ? 4 : 2,
                 }}
-              >
-                <Tooltip direction="top" offset={[0, -risk.radius]} opacity={1}>
-                  <div className="min-w-[160px] space-y-1 text-xs">
-                    <p className="font-semibold">{h.location}</p>
-                    <p>{count} lost report{count !== 1 ? "s" : ""}</p>
-                    {h.open_count != null && (
-                      <p className="text-muted-foreground">{h.open_count} open</p>
-                    )}
-                    <span
-                      style={{
-                        display: "inline-block",
-                        background: risk.fill,
-                        color: "#fff",
-                        borderRadius: 999,
-                        padding: "1px 8px",
-                        fontSize: 10,
-                        fontWeight: 600,
-                      }}
-                    >
-                      {risk.label}
-                    </span>
-                    {ai && h.recommendation && (
-                      <p className="mt-1 italic text-gray-600">{h.recommendation}</p>
-                    )}
-                  </div>
-                </Tooltip>
-              </CircleMarker>
+                eventHandlers={{
+                  click: (e) => {
+                    e.originalEvent.stopPropagation();
+                    setSelectedLocation(
+                      isSelected ? null : h.location
+                    );
+                  },
+                }}
+              />
             );
           })}
         </MapContainer>
@@ -393,71 +481,85 @@ export default function AnalyticsPanel() {
         </p>
       )}
 
-      {/* ── Insights row — 3 cols ── */}
-      <div className="grid gap-4 md:grid-cols-3">
-        {/* AI summary */}
-        {data?.summary && (
-          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-              AI Summary
+      {/* ── Staff Recommendations ── */}
+      {(filteredRecs.length > 0 || (!selectedLocation && overallRecs.length > 0)) && (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-5 shadow-sm">
+          <div className="flex items-center gap-2 mb-4">
+            <Lightbulb className="h-4 w-4 text-amber-500" />
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
+              {selectedLocation ? `Recommendations — ${selectedLocation}` : "Staff Recommendations"}
             </p>
-            <p className="mt-3 text-sm leading-relaxed text-foreground/80">
-              {data.summary}
-            </p>
+            {selectedLocation && (
+              <button
+                onClick={() => setSelectedLocation(null)}
+                className="ml-auto flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700 hover:bg-amber-200"
+              >
+                <X className="h-3 w-3" /> Show all
+              </button>
+            )}
           </div>
-        )}
 
-        {/* Temporal insights */}
-        {data?.temporal_insights && (
-          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4 text-muted-foreground" />
-              <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
-                Temporal Patterns
-              </p>
-            </div>
-            <div className="mt-4 space-y-2">
-              {[
-                { label: "Peak day", value: data.temporal_insights.peak_day, icon: Calendar },
-                { label: "Peak hours", value: data.temporal_insights.peak_hour_range, icon: Clock },
-                { label: "Busiest month", value: data.temporal_insights.busiest_month, icon: BarChart3 },
-              ].map(({ label, value, icon: Icon }) => (
-                <div
-                  key={label}
-                  className="flex items-center justify-between rounded-xl bg-muted/50 px-3.5 py-2.5"
-                >
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Icon className="h-3.5 w-3.5" />
-                    {label}
+          {/* per-route rows */}
+          {filteredRecs.length > 0 && (
+            <div className="space-y-2 mb-4">
+              {filteredRecs.map((h, i) => {
+                const count = h.incident_count ?? h.total_incidents ?? 0;
+                const lvl = computeRiskLevel(count, maxCount);
+                const risk = RISK[lvl] || RISK.low;
+                return (
+                  <div
+                    key={h.location + i}
+                    className="flex items-start gap-3 rounded-xl bg-white/70 px-4 py-3 text-xs shadow-sm"
+                  >
+                    <span
+                      className="mt-0.5 flex h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ background: risk.fill }}
+                    />
+                    <div className="min-w-0">
+                      <span className="font-semibold text-foreground/80">{h.location}</span>
+                      <span className="mx-1.5 text-muted-foreground/40">·</span>
+                      <span className="text-amber-900/70">{h.recommendation}</span>
+                    </div>
                   </div>
-                  <span className="text-xs font-semibold">{value || "—"}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Staff recommendations */}
-        {data?.recommendations?.length > 0 && (
-          <div className="rounded-2xl border border-amber-200 bg-amber-50/40 p-5 shadow-sm">
-            <div className="flex items-center gap-2">
-              <Lightbulb className="h-4 w-4 text-amber-500" />
-              <p className="text-xs font-medium uppercase tracking-[0.18em] text-amber-700">
-                Staff Action Plan
+          {/* overall recs — only when no location selected */}
+          {!selectedLocation && overallRecs.length > 0 && (
+            <>
+              <p className="mb-2 text-[11px] font-medium uppercase tracking-widest text-amber-600/70">
+                Overall Actions
               </p>
-            </div>
-            <ul className="mt-4 space-y-3">
-              {data.recommendations.map((rec, i) => (
-                <li key={i} className="flex items-start gap-2.5 text-xs leading-relaxed">
-                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-400 text-[9px] font-bold text-white">
-                    {i + 1}
-                  </span>
-                  <span className="text-amber-900/80">{rec}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {overallRecs.map((rec, i) => (
+                  <div
+                    key={i}
+                    className="flex items-start gap-2.5 rounded-xl bg-white/60 px-4 py-3 text-xs shadow-sm"
+                  >
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-amber-400 text-[9px] font-bold text-white">
+                      {i + 1}
+                    </span>
+                    <span className="text-amber-900/80">{rec}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ── Temporal Line Chart ── */}
+      <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <div className="flex items-center gap-2 mb-4">
+          <Calendar className="h-4 w-4 text-muted-foreground" />
+          <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">
+            Avg Time of Day Lost — by Day of Week
+          </p>
+          <span className="ml-auto text-[11px] text-muted-foreground">Passenger data · Y = hour (00–23)</span>
+        </div>
+        <DayLineChart byDay={temporalByDay} reports={temporalReports} />
       </div>
     </div>
   );

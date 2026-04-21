@@ -18,13 +18,12 @@ export default defineConfig({
     ],
     proxy: {
       // API gateway (auth + found-items + media uploads init)
+      // Staff REST calls use `/gateway/staff/...` from `web/src/api/gateway.js`.
+      // Do NOT proxy `/staff` here: React Router owns `/staff/*` (e.g. `/staff/dashboard`)
+      // and full page loads must return the SPA; proxying `/staff` breaks reloads with 404.
       "/gateway": {
         target: process.env.VITE_API_BASE_URL || "http://localhost:8081",
         rewrite: (path) => path.replace(/^\/gateway/, ""),
-        changeOrigin: true,
-      },
-      "/staff": {
-        target: process.env.VITE_API_BASE_URL || "http://localhost:8081",
         changeOrigin: true,
       },
       "/media": {
