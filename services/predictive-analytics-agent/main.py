@@ -587,6 +587,8 @@ def run_analytics_endpoint(req: RunAnalyticsRequest):
 def get_heatmap(days: int = 90):
     """
     Return heatmap data from the latest stored hotspot report.
+    If new found_items were added after the last report was generated,
+    the cache is invalidated and a fresh report is generated.
     Falls back to a live PostgreSQL query if no report is stored yet.
     """
     row = None
@@ -603,6 +605,18 @@ def get_heatmap(days: int = 90):
                     """,
                 )
                 row = cur.fetchone()
+
+                # Invalidate cache if new found_items arrived after last report
+                if row is not None:
+                    cur.execute("SELECT MAX(created_at) AS latest FROM found_items")
+                    latest_row = cur.fetchone()
+                    latest_item = latest_row["latest"] if latest_row else None
+                    if latest_item and row["generated_at"] and latest_item > row["generated_at"]:
+                        logger.info(
+                            f"New found_items since last report ({latest_item} > {row['generated_at']})"
+                            " — invalidating cache"
+                        )
+                        row = None
     except Exception as e:
         logger.warning(f"Could not query hotspot_reports (migration pending?): {e}")
 
@@ -872,6 +886,78 @@ def get_hotspots(top: int = 10):
         "summary": row["ai_summary"],
         "hotspots": hotspots,
     }
+
+
+@app.get("/analytics/temporal")
+def get_temporal():
+    """
+    Return:
+    - by_day_of_week: avg hour per day (0 for days with no data) for the continuous line
+    - reports: each individual lost_report as {day_num, hour} for scatter dots
+    """
+    DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
+
+    # date_lost is now TIMESTAMPTZ — use it for both day-of-week and hour.
+    # Fall back to created_at if date_lost is null.
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                ts_expr = "COALESCE(date_lost, created_at)"
+                cur.execute(
+                    f"""
+                    SELECT
+                        EXTRACT(DOW FROM {ts_expr})::int AS day_num,
+                        AVG(EXTRACT(HOUR FROM {ts_expr})
+                            + EXTRACT(MINUTE FROM {ts_expr}) / 60.0) AS avg_hour,
+                        COUNT(*) AS report_count
+                    FROM lost_reports
+                    WHERE {ts_expr} IS NOT NULL
+                    GROUP BY day_num
+                    ORDER BY day_num
+                    """
+                )
+                agg_rows = cur.fetchall()
+
+                cur.execute(
+                    f"""
+                    SELECT
+                        EXTRACT(DOW FROM {ts_expr})::int AS day_num,
+                        EXTRACT(HOUR FROM {ts_expr})
+                            + EXTRACT(MINUTE FROM {ts_expr}) / 60.0 AS hour
+                    FROM lost_reports
+                    WHERE {ts_expr} IS NOT NULL
+                    ORDER BY day_num, hour
+                    """
+                )
+                detail_rows = cur.fetchall()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Temporal query failed: {e}")
+
+    day_map = {
+        int(r["day_num"]): round(float(r["avg_hour"]), 3)
+        for r in agg_rows
+        if r["avg_hour"] is not None
+    }
+
+    # All 7 days; days with no data get avg_hour=None (frontend uses 0 for continuity)
+    by_day = [
+        {
+            "day": DAYS[i],
+            "day_num": i,
+            "avg_hour": day_map.get(i),
+            "count": next(
+                (int(r["report_count"]) for r in agg_rows if int(r["day_num"]) == i), 0
+            ),
+        }
+        for i in range(7)
+    ]
+
+    reports = [
+        {"day_num": int(r["day_num"]), "hour": round(float(r["hour"]), 3)}
+        for r in detail_rows
+    ]
+
+    return {"by_day_of_week": by_day, "reports": reports}
 
 
 @app.get("/analytics/history")

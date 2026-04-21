@@ -5,7 +5,13 @@ function formatDate(value) {
   if (!value) return "Not provided";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Not provided";
-  return date.toLocaleString();
+  return date.toLocaleString("en-US", {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 function statusBadgeClass(status) {
