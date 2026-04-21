@@ -90,7 +90,7 @@ func forwardedTokenFromRequest(r *http.Request) string {
 				return v
 			}
 		}
-	case strings.HasPrefix(path, "/staff/"):
+	case strings.HasPrefix(path, "/staff/"), strings.HasPrefix(path, "/media/"):
 		if c, err := r.Cookie("staff_session"); err == nil {
 			if v := strings.TrimSpace(c.Value); v != "" {
 				return v
