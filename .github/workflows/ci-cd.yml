@@ -125,6 +125,7 @@ jobs:
     env:
       KUBE_CONFIG_DATA: ${{ secrets.KUBE_CONFIG_DATA }}
       K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE }}
+      DOKS_CLUSTER_NAME: ${{ vars.DOKS_CLUSTER_NAME }}
       DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
     steps:
       - name: Check out repository
@@ -146,8 +147,15 @@ jobs:
 
       - name: Configure kubeconfig
         run: |
-          mkdir -p "$HOME/.kube"
-          echo "${KUBE_CONFIG_DATA}" | base64 --decode > "$HOME/.kube/config"
+          if [[ -n "${DIGITALOCEAN_ACCESS_TOKEN}" && -n "${DOKS_CLUSTER_NAME}" ]]; then
+            doctl kubernetes cluster kubeconfig save --expiry-seconds 600 "${DOKS_CLUSTER_NAME}"
+          elif [[ -n "${KUBE_CONFIG_DATA}" ]]; then
+            mkdir -p "$HOME/.kube"
+            echo "${KUBE_CONFIG_DATA}" | base64 --decode > "$HOME/.kube/config"
+          else
+            echo "Either DIGITALOCEAN_ACCESS_TOKEN + DOKS_CLUSTER_NAME or KUBE_CONFIG_DATA must be configured." >&2
+            exit 1
+          fi
           kubectl config current-context
 
       - name: Deploy production
