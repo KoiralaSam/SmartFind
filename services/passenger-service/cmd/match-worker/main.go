@@ -14,11 +14,13 @@ import (
 	"time"
 
 	grpcadapter "smartfind/services/passenger-service/internal/adapters/secondary/grpc"
+	postgresadapter "smartfind/services/passenger-service/internal/adapters/secondary/postgres"
+	passengersvc "smartfind/services/passenger-service/internal/service"
 	"smartfind/shared/db"
 	"smartfind/shared/env"
 	"smartfind/shared/pgvector"
-	"smartfind/shared/s3media"
 	staffpb "smartfind/shared/proto/staff"
+	"smartfind/shared/s3media"
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -35,11 +37,11 @@ type lostReportRow struct {
 }
 
 type insertedMatch struct {
-	FoundItemID      string
-	ItemName         string
-	SimilarityScore  float64
-	PrimaryImageKey  string
-	ImageKeys        []string
+	FoundItemID     string
+	ItemName        string
+	SimilarityScore float64
+	PrimaryImageKey string
+	ImageKeys       []string
 }
 
 // emailMatch is the same row plus presigned image URLs for HTML email clients.
@@ -89,6 +91,7 @@ func runOnce(ctx context.Context, pool *pgxpool.Pool, staffClient staffpb.StaffS
 }
 
 func runOnceWithPool(ctx context.Context, pool *pgxpool.Pool, staffClient staffpb.StaffServiceClient) error {
+	repo := postgresadapter.NewPassengerRepository(pool)
 	minSim := env.GetFloat("MATCH_MIN_SIMILARITY", 0.65)
 	if minSim < 0 {
 		minSim = 0
@@ -102,27 +105,6 @@ func runOnceWithPool(ctx context.Context, pool *pgxpool.Pool, staffClient staffp
 	}
 	if searchLimit > 50 {
 		searchLimit = 50
-	}
-
-	maxPerReport := env.GetInt("MATCH_MAX_NOTIFS_PER_REPORT_PER_DAY", 3)
-	if maxPerReport <= 0 {
-		maxPerReport = 3
-	}
-	maxPerPassenger := env.GetInt("MATCH_MAX_NOTIFS_PER_PASSENGER_PER_DAY", 10)
-	if maxPerPassenger <= 0 {
-		maxPerPassenger = 10
-	}
-
-	emailCooldownMin := env.GetInt("MATCH_EMAIL_COOLDOWN_MINUTES", 60)
-	if emailCooldownMin <= 0 {
-		emailCooldownMin = 60
-	}
-	emailMaxItems := env.GetInt("MATCH_EMAIL_MAX_ITEMS", 5)
-	if emailMaxItems <= 0 {
-		emailMaxItems = 5
-	}
-	if emailMaxItems > 20 {
-		emailMaxItems = 20
 	}
 
 	batch := env.GetInt("MATCH_WORKER_BATCH_LIMIT", 200)
@@ -187,66 +169,34 @@ func runOnceWithPool(ctx context.Context, pool *pgxpool.Pool, staffClient staffp
 			continue
 		}
 
-		reportCount, err := countNotificationsSince(ctx, pool, "lost_report_id", lr.LostReportID, 24*time.Hour)
-		if err != nil {
-			return err
-		}
-		passengerCount, err := countNotificationsSince(ctx, pool, "passenger_id", lr.PassengerID, 24*time.Hour)
-		if err != nil {
-			return err
-		}
-		remaining := minInt(maxPerReport-reportCount, maxPerPassenger-passengerCount)
-		if remaining <= 0 {
-			_ = updateLastChecked(ctx, pool, lr.LostReportID, now)
-			continue
-		}
-
-		inserted := make([]insertedMatch, 0)
+		candidates := make([]passengersvc.MatchCandidate, 0, len(resp.GetMatches()))
 		for _, m := range resp.GetMatches() {
-			if remaining <= 0 {
-				break
-			}
 			if m == nil || m.GetItem() == nil {
 				continue
 			}
 			it := m.GetItem()
-			// Store raw S3 keys (not presigned URLs) so the passenger-service
-			// can generate fresh presigned URLs at read-time. Presigned URLs
-			// expire in ~10 minutes; keys never expire.
-			ok, err := insertNotification(ctx, pool, lr.PassengerID, lr.LostReportID, it.GetId(), m.GetSimilarityScore(), it.GetItemName(), it.GetImageKeys(), it.GetPrimaryImageKey())
-			if err != nil {
-				return err
-			}
-			if !ok {
-				continue
-			}
-			inserted = append(inserted, insertedMatch{
+			candidates = append(candidates, passengersvc.MatchCandidate{
 				FoundItemID:     it.GetId(),
 				ItemName:        it.GetItemName(),
 				SimilarityScore: m.GetSimilarityScore(),
 				PrimaryImageKey: it.GetPrimaryImageKey(),
 				ImageKeys:       it.GetImageKeys(),
 			})
-			remaining--
 		}
 
-		_ = updateLastChecked(ctx, pool, lr.LostReportID, now)
-
-		if len(inserted) == 0 {
-			continue
+		report := passengersvc.MatchReportContext{
+			LostReportID:   lr.LostReportID,
+			PassengerID:    lr.PassengerID,
+			PassengerEmail: lr.PassengerEmail,
+			LostItemName:   lr.LostItemName,
 		}
-
-		if lr.LastEmailedAt.Valid && lr.LastEmailedAt.Time.After(now.Add(-time.Duration(emailCooldownMin)*time.Minute)) {
-			continue
+		if lr.LastEmailedAt.Valid {
+			last := lr.LastEmailedAt.Time
+			report.LastEmailedAt = &last
 		}
-
-		if err := sendMatchEmail(ctx, lr.PassengerEmail, lr.LostReportID, lr.LostItemName, inserted, emailMaxItems); err != nil {
-			// sendMatchEmail presigns S3 keys for inline images; if Mailtrap or S3
-			// is misconfigured, we still keep DB notifications — only log the error.
-			log.Printf("match email failed passenger_id=%s lost_report_id=%s: %v", lr.PassengerID, lr.LostReportID, err)
-			continue
+		if _, err := passengersvc.ApplyMatchNotifications(ctx, repo, report, candidates); err != nil {
+			return err
 		}
-		_ = updateLastEmailed(ctx, pool, lr.LostReportID, now)
 	}
 	return rows.Err()
 }
