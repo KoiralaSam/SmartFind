@@ -15,6 +15,7 @@ export default defineConfig(({ mode }) => {
       allowedHosts: [
         "unpolemical-spinier-chana.ngrok-free.dev",
         "smartfind.samarpankoirala.tech",
+        "www.smartfind.samarpankoirala.tech",
         "api.smartfind.samarpankoirala.tech",
         ...(env.VITE_ALLOWED_HOSTS || "")
           .split(",")
